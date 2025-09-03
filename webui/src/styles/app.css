@@ -25,6 +25,8 @@
   /* type scale */
   --title-size: clamp(14px, 1.4vw, 16px);
   --meta-size: clamp(11px, 1.0vw, 13px);
+
+  --progress-offset: 80px;
 }
 
 /* base */
@@ -166,8 +168,16 @@ body{
 
 .ab-meta{ padding: 10px 10px 12px; }
 .ab-title{
-  font-size: var(--title-size); font-weight: 700; line-height: 1.25;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  /* two-line clamp with safe fallbacks */
+  font-size: var(--title-size);
+  font-weight: 700;
+  line-height: 1.25;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;          /* show up to two lines */
+  /* fallbacks for non-webkit */
+  max-height: calc(2 * 1.25em);
 }
 .ab-author{
   font-size: var(--meta-size); color: var(--ink-muted); opacity: .9;
@@ -183,11 +193,11 @@ body{
 
 /* progress strip on card */
 .progress{
-  position: absolute; left: 10px; right: 10px; bottom: 54px; height: 6px;
+  position: absolute; left: 10px; right: 10px; bottom: var(--progress-offset); height: 6px;
   border-radius: 8px; background: rgba(255,255,255,.14); overflow: hidden;
 }
 .progress > span{
-  display: block; height: 100%; width: 40%;
+  display: block; height: 100%;
   background: linear-gradient(90deg, var(--primary-400), var(--primary-600));
 }
 
