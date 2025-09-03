@@ -1,4 +1,4 @@
-// server.js — Audiobook add-on with LibriVox catalog, OL enrichment, and AudioAZ streams
+// server.js — Audiobook add-on with LibriVox catalog, OL enrichment, AudioAZ & RSS expansion
 const express = require("express");
 const cors = require("cors");
 const fetch = require("node-fetch"); // v2 for CommonJS
@@ -8,7 +8,7 @@ const app = express();
 app.use(cors());
 
 // ------------------------- Config -------------------------
-const HOST = process.env.HOST || "0.0.0.0"; // set HOST=0.0.0.0 to expose on LAN
+const HOST = process.env.HOST || "127.0.0.1"; // set HOST=0.0.0.0 to expose on LAN
 const PORT = process.env.PORT || 7000;
 
 const LV_BASE = "https://librivox.org/api/feed/audiobooks"; // LibriVox discovery/info
@@ -19,6 +19,11 @@ function slugify(s) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/(^-|-$)+/g, "");
+}
+function parseHmsToSeconds(hms) {
+  if (!hms || typeof hms !== "string") return undefined;
+  // Accept h:mm:ss or m:ss or s
+  return hms.split(":").reduce((acc, v) => acc * 60 + Number(v), 0);
 }
 
 // In-memory index so /meta and /stream can resolve by id created from list results
@@ -84,8 +89,8 @@ async function lvFetchById(lvId) {
   const rec = (data?.books || [])[0];
   if (!rec) return null;
 
-  // Collect streams; prefer per-track MP3s, but keep ZIP/RSS (UI will filter)
-  const streams = [];
+  // Collect streams; prefer per-track MP3s from sections; keep ZIP/RSS (UI filters)
+  const mp3Streams = [];
   if (Array.isArray(rec.sections)) {
     rec.sections.forEach((s, i) => {
       const url = s?.file_url;
@@ -93,10 +98,8 @@ async function lvFetchById(lvId) {
         const dur =
           typeof s.playtime_seconds === "number"
             ? s.playtime_seconds
-            : typeof s.playtime === "string"
-              ? s.playtime.split(":").reduce((acc, v) => acc * 60 + Number(v), 0)
-              : undefined;
-        streams.push({
+            : (typeof s.playtime === "string" ? parseHmsToSeconds(s.playtime) : undefined);
+        mp3Streams.push({
           title: `Track ${i + 1}: ${s.section_title || ""}`.trim(),
           url,
           mime: "audio/mpeg",
@@ -105,11 +108,13 @@ async function lvFetchById(lvId) {
       }
     });
   }
+
+  const otherStreams = [];
   if (rec.url_zip_file) {
-    streams.push({ title: "LibriVox ZIP (all tracks)", url: rec.url_zip_file, mime: "application/zip" });
+    otherStreams.push({ title: "LibriVox ZIP (all tracks)", url: rec.url_zip_file, mime: "application/zip" });
   }
   if (rec.url_rss) {
-    streams.push({ title: "LibriVox RSS", url: rec.url_rss });
+    otherStreams.push({ title: "LibriVox RSS", url: rec.url_rss, mime: "application/rss+xml" });
   }
 
   const cover = rec?.url_librivox ? rec.url_librivox.replace(/\/$/, "") + "/cover.jpg" : undefined;
@@ -122,24 +127,105 @@ async function lvFetchById(lvId) {
     author,
     description: rec.description || "",
     cover,
-    streams, // includes per-track MP3s with durations
+    streams: [...mp3Streams, ...otherStreams],
     duration: rec.totaltime_seconds ? Number(rec.totaltime_seconds) : undefined,
     chapters: Array.isArray(rec.sections)
       ? rec.sections.map((s, i) => ({
           title: s.section_title || `Track ${i + 1}`,
-          start: 0, // keep 0 for now; we treat per-track as separate sources
+          start: 0, // keep 0; treat per-track as separate sources
         }))
       : undefined,
+    rss: rec.url_rss || null,
   };
 }
 
+// ---------------- LibriVox RSS -> per-track MP3s -------------
+async function fetchText(u) {
+  const res = await fetch(u, {
+    redirect: "follow",
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Audiobook Addon; +https://github.com/your/repo)",
+      "Accept": "application/rss+xml,application/xml,text/xml;q=0.9,text/html;q=0.8,*/*;q=0.7",
+    },
+  });
+  if (!res.ok) throw new Error(`fetch ${u} -> ${res.status}`);
+  return await res.text();
+}
+
+/**
+ * Very small RSS parser for LibriVox:
+ * - Finds each <item> ... </item>
+ * - Pulls <title>, <enclosure url="...">, <guid>, <link>, <itunes:duration> or <duration>
+ * Returns [{title,url,duration}]
+ */
+function parseLibrivoxRss(xml) {
+  const items = [];
+  const itemRe = /<item\b[\s\S]*?<\/item>/gi;
+  let m;
+  while ((m = itemRe.exec(xml))) {
+    const chunk = m[0];
+
+    const title = (chunk.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i)?.[1] || "")
+      .replace(/<!\[CDATA\[(.*?)\]\]>/g, "$1")
+      .trim();
+
+    const encl = chunk.match(/<enclosure\b[^>]*url="([^"]+)"[^>]*>/i)?.[1] || null;
+    const guid = chunk.match(/<guid\b[^>]*>([\s\S]*?)<\/guid>/i)?.[1] || null;
+    const link = chunk.match(/<link\b[^>]*>([\s\S]*?)<\/link>/i)?.[1] || null;
+
+    // itunes:duration can be inside CDATA or plain
+    const durStr =
+      chunk.match(/<itunes:duration\b[^>]*>([\s\S]*?)<\/itunes:duration>/i)?.[1] ||
+      chunk.match(/<duration\b[^>]*>([\s\S]*?)<\/duration>/i)?.[1] ||
+      null;
+    const duration = durStr ? parseHmsToSeconds(durStr.replace(/<!\[CDATA\[(.*?)\]\]>/g, "$1").trim()) : undefined;
+
+    // Choose best URL: prefer enclosure; fall back to guid/link if it's an .mp3
+    let url = null;
+    if (encl && /\.mp3(\?|$)/i.test(encl)) url = encl;
+    else if (guid && /\.mp3(\?|$)/i.test(guid)) url = guid;
+    else if (link && /\.mp3(\?|$)/i.test(link)) url = link;
+
+    if (url) {
+      items.push({
+        title: title || "Track",
+        url,
+        mime: "audio/mpeg",
+        duration,
+      });
+    }
+  }
+  return items;
+}
+
+async function expandRssToStreams(rssUrl) {
+  try {
+    const xml = await fetchText(rssUrl);
+    return parseLibrivoxRss(xml);
+  } catch (e) {
+    console.warn("RSS expand failed:", e.message);
+    return [];
+  }
+}
+
 // -------------- Enrichment: combine LV (by id) + OL --------
-async function resolveAudiobook({ id, title, author, lvId }) {
+async function resolveAudiobook({ id, title, author, lvId, expandRss }) {
   // 1) Best-quality fetch: LV by numeric id for streams and base meta
   const lv = await lvFetchById(lvId);
 
   // 2) In parallel, ask OL for nicer cover/description
   const ol = await olSearch(lv?.title || title, lv?.author || author);
+
+  // 3) Merge streams: per-track MP3s from sections + (optionally) expanded RSS MP3s
+  let baseStreams = Array.isArray(lv?.streams) ? [...lv.streams] : [];
+  if (expandRss && lv?.rss) {
+    const rssTracks = await expandRssToStreams(lv.rss);
+    // Dedupe by URL
+    const seen = new Set(baseStreams.map(s => s.url));
+    for (const t of rssTracks) {
+      if (!seen.has(t.url)) baseStreams.unshift(t); // put RSS first (optional)
+    }
+  }
 
   const meta = {
     id,
@@ -154,8 +240,8 @@ async function resolveAudiobook({ id, title, author, lvId }) {
     },
   };
 
-  const streams = (lv?.streams || []).map((s) => ({
-    name: "LibriVox",
+  const streams = (baseStreams || []).map((s) => ({
+    name: s.mime === "audio/mpeg" ? "LibriVox" : (s.mime === "application/rss+xml" ? "LibriVox RSS" : "LibriVox"),
     title: s.title,
     url: s.url,
     mime: s.mime,
@@ -184,7 +270,6 @@ async function lvList(limit = 50, offset = 0) {
       ? `${b.authors[0].first_name || ""} ${b.authors[0].last_name || ""}`.trim()
       : undefined;
     const id = `audiobook:${slugify(`${title}-${author || ""}`)}`;
-
     const poster = b.url_librivox ? `${b.url_librivox.replace(/\/$/, "")}/cover.jpg` : undefined;
 
     // index for later resolution in /meta and /stream — include LV numeric id
@@ -196,8 +281,6 @@ async function lvList(limit = 50, offset = 0) {
       name: title,
       poster,
       description: b.description || "",
-      // (optional) preview fields so shelves can show badges without /meta:
-      // audiobook: { author, duration: b.totaltime_seconds ? Number(b.totaltime_seconds) : undefined }
     };
   });
 
@@ -205,7 +288,7 @@ async function lvList(limit = 50, offset = 0) {
 }
 
 // -------------------------- AudioAZ resolver --------------------------
-async function fetchText(u) {
+async function fetchHtml(u) {
   const res = await fetch(u, {
     redirect: "follow",
     headers: {
@@ -216,20 +299,17 @@ async function fetchText(u) {
   if (!res.ok) throw new Error(`fetch ${u} -> ${res.status}`);
   return await res.text();
 }
-
 function tryParseNextData(html) {
   const m = html.match(/<script[^>]+id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/i);
   if (!m) return null;
   try { return JSON.parse(m[1]); } catch { return null; }
 }
-
 function extractMp3Links(html) {
   const links = new Set();
   const re = /https?:\/\/[^\s"'<>]+?\.mp3(?:\?[^\s"'<>]*)?/ig;
   let m; while ((m = re.exec(html))) links.add(m[0]);
   return Array.from(links);
 }
-
 function extractSectionTitles(html) {
   const lines = html
     .split(/\n/)
@@ -237,23 +317,20 @@ function extractSectionTitles(html) {
     .filter(s => /^\d+\.\s+(Section|Chapter|Track)\b/i.test(s));
   return lines.map(s => s.replace(/^\d+\.\s+/, "").trim());
 }
-
 function fmtSecs(sec) {
   if (!sec || !isFinite(sec)) return undefined;
   const h = Math.floor(sec/3600), m = Math.floor((sec%3600)/60), s = Math.floor(sec%60);
   return h ? `${h}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}` : `${m}:${String(s).padStart(2,"0")}`;
 }
-
 async function resolveAudioAz(url) {
-  // validate & normalize
   let u;
   try { u = new NodeURL(url); } catch { throw new Error("Invalid AudioAZ URL"); }
   if (!/audioaz\.com\/(en|vi|es|de|ru|zh)\/audiobook\//i.test(u.href))
     throw new Error("Not an AudioAZ audiobook URL");
 
-  const html = await fetchText(u.href);
+  const html = await fetchHtml(u.href);
 
-  // 1) Try Next.js data
+  // Try Next.js data
   const nextData = tryParseNextData(html);
   /** @type {{title?:string, author?:string, tracks?: Array<{title?:string, url?:string, duration?:number}>}} */
   let structured = null;
@@ -271,9 +348,7 @@ async function resolveAudioAz(url) {
             if (!url || !/\.mp3(\?|$)/i.test(url)) return null;
             const dur = typeof s?.playtime_seconds === "number"
               ? s.playtime_seconds
-              : (typeof s?.playtime === "string"
-                  ? s.playtime.split(":").reduce((acc, v) => acc * 60 + Number(v), 0)
-                  : undefined);
+              : (typeof s?.playtime === "string" ? parseHmsToSeconds(s.playtime) : undefined);
             return { url, title: s?.section_title || s?.title || `Track ${i + 1}`, duration: dur };
           })
           .filter(Boolean);
@@ -288,7 +363,6 @@ async function resolveAudioAz(url) {
           break;
         }
       }
-      // scan children
       for (const k of Object.keys(node)) {
         const v = node[k];
         if (v && typeof v === "object") stack.push(v);
@@ -296,7 +370,7 @@ async function resolveAudioAz(url) {
     }
   }
 
-  // 2) Fallback: scrape any .mp3 links
+  // Fallback: scrape any .mp3 links
   if (!structured) {
     const mp3s = extractMp3Links(html);
     if (!mp3s.length) return { title: undefined, author: undefined, streams: [] };
@@ -310,7 +384,7 @@ async function resolveAudioAz(url) {
     return { title: undefined, author: undefined, streams };
   }
 
-  // 3) Normalize into Stremio streams
+  // Normalize into Stremio streams
   const streams = structured.tracks.map(t => ({
     name: "AudioAZ",
     title: t.duration ? `${t.title} • ${fmtSecs(t.duration)}` : t.title,
@@ -319,11 +393,7 @@ async function resolveAudioAz(url) {
     duration: t.duration,
   }));
 
-  return {
-    title: structured.title,
-    author: structured.author,
-    streams,
-  };
+  return { title: structured.title, author: structured.author, streams };
 }
 
 // --------------------- Routes -------------------------------
@@ -332,9 +402,9 @@ async function resolveAudioAz(url) {
 app.get("/manifest.json", (_req, res) => {
   res.json({
     id: "com.example.audiobooks",
-    version: "3.0.0",
-    name: "Example Audiobooks (LibriVox + AudioAZ)",
-    description: "Live LibriVox catalog with Open Library enrichment and AudioAZ streams",
+    version: "3.1.0",
+    name: "Example Audiobooks (LibriVox + AudioAZ + RSS)",
+    description: "LibriVox catalog with Open Library enrichment, AudioAZ streams, and LibriVox RSS expansion",
     types: ["other"],
     idPrefixes: ["audiobook:"],
     catalogs: [{ type: "other", id: "audiobook.popular", name: "Popular Audiobooks" }],
@@ -377,6 +447,7 @@ app.get("/meta/:type/:id.json", async (req, res) => {
       title: intent.title,
       author: intent.author,
       lvId: intent.lvId, // pass LV id when we have it
+      expandRss: false,  // not needed for meta
     });
     res.json({ meta });
   } catch (e) {
@@ -385,10 +456,12 @@ app.get("/meta/:type/:id.json", async (req, res) => {
   }
 });
 
-// Stream — include LibriVox streams; optionally blend AudioAZ via ?audioaz=<AudioAZ title URL>
+// Stream — include LibriVox streams; expand RSS to per-track MP3s; optionally blend AudioAZ via ?audioaz=<URL>
 app.get("/stream/:type/:id.json", async (req, res) => {
   const { type, id } = req.params;
   if (type !== "other") return res.status(404).json({ error: "wrong type" });
+
+  const expandRss = String(req.query.expandRss || "1") !== "0"; // default true
 
   let intent = catalogIndex.get(id);
   if (!intent) {
@@ -403,6 +476,7 @@ app.get("/stream/:type/:id.json", async (req, res) => {
       title: intent.title,
       author: intent.author,
       lvId: intent.lvId,
+      expandRss,
     });
 
     // Blend in AudioAZ if the UI passes a hint
@@ -412,7 +486,14 @@ app.get("/stream/:type/:id.json", async (req, res) => {
         const az = await resolveAudioAz(audioAzHint);
         if (az.streams?.length) {
           // put AudioAZ tracks first so the picker shows them on top
-          streams.unshift(...az.streams);
+          // also dedupe by URL
+          const seen = new Set(streams.map(s => s.url));
+          for (const t of az.streams) {
+            if (!seen.has(t.url)) {
+              streams.unshift(t);
+              seen.add(t.url);
+            }
+          }
         }
       } catch (e) {
         console.warn("audioaz hint failed:", e.message);
@@ -447,8 +528,6 @@ app.get("/search.json", async (req, res) => {
           name: ol.title,
           poster: ol.cover || null,
           description: ol.description || "",
-          // optionally preview more fields:
-          // audiobook: { author: ol.author }
         },
       ],
     });
@@ -472,8 +551,21 @@ app.get("/audioaz/resolve.json", async (req, res) => {
   }
 });
 
+// LibriVox RSS direct expansion — debug endpoint
+// GET /librivox/rss.json?url=<rss-url>
+app.get("/librivox/rss.json", async (req, res) => {
+  const url = String(req.query.url || "");
+  if (!url) return res.status(400).json({ error: "missing url" });
+  try {
+    const items = await expandRssToStreams(url);
+    res.json({ items });
+  } catch (e) {
+    res.status(500).json({ error: "rss expand failed" });
+  }
+});
+
 // Health
-app.get("/", (_req, res) => res.send("Audiobook add-on (LibriVox + AudioAZ) running. See /manifest.json"));
+app.get("/", (_req, res) => res.send("Audiobook add-on (LibriVox + AudioAZ + RSS) running. See /manifest.json"));
 
 app.listen(PORT, HOST, () => {
   console.log(`Audiobook add-on listening on http://${HOST}:${PORT}`);
