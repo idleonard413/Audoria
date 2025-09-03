@@ -30,6 +30,116 @@ function parseHmsToSeconds(hms) {
 // id => { title, author, lvId }
 const catalogIndex = new Map();
 
+// --- Safe allowlist for media proxying ---
+const ALLOW_MEDIA_HOSTS = [
+  // Internet Archive mirrors & main
+  "archive.org", "www.archive.org",
+  "ia600101.us.archive.org","ia600102.us.archive.org","ia600103.us.archive.org","ia600104.us.archive.org",
+  "ia601***.us.archive.org", // wildcard note: see matcher below
+  "ia800***.us.archive.org", // many IA mirrors exist; we match 'ia[0-9].*.us.archive.org'
+  // LibriVox
+  "librivox.org","www.librivox.org","www.librivox.org",
+  // AudioAZ (if you decide to proxy their mp3 too)
+  "audioaz.com","www.audioaz.com",
+];
+
+// simple host check with patterns for ia*.us.archive.org
+function hostAllowed(u) {
+  try {
+    const h = new URL(u).host.toLowerCase();
+    if (h.endsWith(".us.archive.org")) return /^ia\d{3,}\.us\.archive\.org$/.test(h);
+    return [
+      "archive.org", "www.archive.org",
+      "librivox.org","www.librivox.org",
+      "audioaz.com","www.audioaz.com",
+    ].includes(h);
+  } catch { return false; }
+}
+
+function toHttps(u) {
+  return typeof u === "string" ? u.replace(/^http:\/\//i, "https://") : u;
+}
+
+// copies a subset of headers from origin
+function passThroughHeaders(originHeaders, res) {
+  const ct = originHeaders.get("content-type");
+  const cl = originHeaders.get("content-length");
+  const ar = originHeaders.get("accept-ranges");
+  const cd = originHeaders.get("content-disposition");
+  if (ct) res.setHeader("Content-Type", ct);
+  if (cl) res.setHeader("Content-Length", cl);
+  if (ar) res.setHeader("Accept-Ranges", ar);
+  if (cd) res.setHeader("Content-Disposition", cd);
+  // Be permissive for browser consumption
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Timing-Allow-Origin", "*");
+}
+
+// CORS preflight
+app.options("/proxy", (req, res) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET,HEAD,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Range, Content-Type");
+  res.status(204).end();
+});
+
+// Range-capable streaming proxy for audio (and images)
+app.get("/proxy", async (req, res) => {
+  const u = req.query.u ? String(req.query.u) : "";
+  if (!u) return res.status(400).json({ error: "missing u" });
+  const url = toHttps(u);
+
+  if (!hostAllowed(url)) {
+    return res.status(403).json({ error: "host not allowed" });
+  }
+
+  try {
+    const headers = {};
+    // forward Range for seeking
+    if (req.headers.range) headers.Range = req.headers.range;
+
+    const r = await fetch(url, { headers, redirect: "follow" });
+    // Some IA endpoints 302 multiple times; after follow, check ok
+    if (!r.ok && r.status !== 206) {
+      return res.status(r.status || 502).end();
+    }
+
+    // Handle partial content status
+    if (r.status === 206) res.status(206);
+    passThroughHeaders(r.headers, res);
+
+    // Stream body
+    if (!r.body) return res.end();
+    r.body.pipe(res);
+  } catch (e) {
+    console.error("proxy error", e);
+    res.status(502).json({ error: "proxy failed" });
+  }
+});
+
+// lightweight image proxy to avoid ORB on covers
+app.get("/img", async (req, res) => {
+  const u = req.query.u ? String(req.query.u) : "";
+  if (!u) return res.status(400).end();
+  const url = toHttps(u);
+  if (!hostAllowed(url)) return res.status(403).end();
+
+  try {
+    const r = await fetch(url, { redirect: "follow" });
+    if (!r.ok) return res.status(r.status).end();
+    // only allow images
+    const ct = r.headers.get("content-type") || "";
+    if (!/^image\//i.test(ct)) return res.status(415).end();
+
+    passThroughHeaders(r.headers, res);
+    if (!r.body) return res.end();
+    r.body.pipe(res);
+  } catch (e) {
+    console.error("img proxy error", e);
+    res.status(502).end();
+  }
+});
+
 // ----------------- Open Library (covers/desc) --------------
 async function olSearch(title, author) {
   const url = new URL("https://openlibrary.org/search.json");
@@ -470,6 +580,12 @@ app.get("/meta/:type/:id.json", async (req, res) => {
       lvId: intent.lvId, // pass LV id when we have it
       expandRss: false,  // not needed for meta
     });
+    
+    if (meta.poster) {
+      const base = `${req.protocol}://${req.get("host")}`;
+      meta.poster = `${base}/img?u=${encodeURIComponent(toHttps(meta.poster))}`;
+    }
+    
     res.json({ meta });
   } catch (e) {
     console.error("meta error", e);
@@ -520,7 +636,14 @@ app.get("/stream/:type/:id.json", async (req, res) => {
         console.warn("audioaz hint failed:", e.message);
       }
     }
-
+    const base = `${req.protocol}://${req.get("host")}`;
+      for (const s of streams) {
+        if (s && s.url) {
+          s.url = `${base}/proxy?u=${encodeURIComponent(toHttps(s.url))}`;
+          // keep mime/duration/title as-is
+        }
+    }
+    
     res.json({ streams });
   } catch (e) {
     console.error("stream error", e);
