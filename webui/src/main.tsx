@@ -80,7 +80,7 @@ function App() {
       src: s.url,
       sourceTitle: s.title || s.name,
       chapters: meta.chapters,
-      duration: meta.duration,
+      duration: s.duration ?? meta.duration,
       cover: pickerMeta.cover
     });
     setPickerOpen(false);

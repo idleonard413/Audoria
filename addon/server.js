@@ -93,7 +93,7 @@ async function lvFetchById(lvId) {
   const mp3Streams = [];
   if (Array.isArray(rec.sections)) {
     rec.sections.forEach((s, i) => {
-      const url = s?.file_url;
+      const url = s?.file_url ? toHttps(s.file_url) : null;
       if (url && (url.endsWith(".mp3") || url.includes(".mp3?"))) {
         const dur =
           typeof s.playtime_seconds === "number"
@@ -158,6 +158,11 @@ async function fetchText(u) {
  * - Pulls <title>, <enclosure url="...">, <guid>, <link>, <itunes:duration> or <duration>
  * Returns [{title,url,duration}]
  */
+function toHttps(u) {
+  return typeof u === "string" ? u.replace(/^http:\/\//i, "https://") : u;
+}
+
+/** LibriVox RSS -> [{ title, url, mime, duration, idx }] */
 function parseLibrivoxRss(xml) {
   const items = [];
   const itemRe = /<item\b[\s\S]*?<\/item>/gi;
@@ -173,34 +178,46 @@ function parseLibrivoxRss(xml) {
     const guid = chunk.match(/<guid\b[^>]*>([\s\S]*?)<\/guid>/i)?.[1] || null;
     const link = chunk.match(/<link\b[^>]*>([\s\S]*?)<\/link>/i)?.[1] || null;
 
-    // itunes:duration can be inside CDATA or plain
     const durStr =
       chunk.match(/<itunes:duration\b[^>]*>([\s\S]*?)<\/itunes:duration>/i)?.[1] ||
-      chunk.match(/<duration\b[^>]*>([\s\S]*?)<\/duration>/i)?.[1] ||
-      null;
-    const duration = durStr ? parseHmsToSeconds(durStr.replace(/<!\[CDATA\[(.*?)\]\]>/g, "$1").trim()) : undefined;
+      chunk.match(/<duration\b[^>]*>([\s\S]*?)<\/duration>/i)?.[1] || null;
 
-    // Choose best URL: prefer enclosure; fall back to guid/link if it's an .mp3
+    const duration = durStr
+      ? parseHmsToSeconds(durStr.replace(/<!\[CDATA\[(.*?)\]\]>/g, "$1").trim())
+      : undefined;
+
+    // Prefer enclosure; fall back to GUID/LINK if they are .mp3
     let url = null;
     if (encl && /\.mp3(\?|$)/i.test(encl)) url = encl;
     else if (guid && /\.mp3(\?|$)/i.test(guid)) url = guid;
     else if (link && /\.mp3(\?|$)/i.test(link)) url = link;
+    if (!url) continue;
 
-    if (url) {
-      items.push({
-        title: title || "Track",
-        url,
-        mime: "audio/mpeg",
-        duration,
-      });
-    }
+    url = toHttps(url);
+
+    items.push({
+      title: title || "Track",
+      url,
+      mime: "audio/mpeg",
+      duration,
+    });
   }
-  return items;
+
+  // RSS is newest-first; show ascending
+  items.reverse();
+
+  // Number as Track 1..N
+  return items.map((it, i) => ({
+    ...it,
+    title: `Track ${i + 1}: ${it.title}`.trim(),
+    idx: i + 1,
+  }));
 }
+
 
 async function expandRssToStreams(rssUrl) {
   try {
-    const xml = await fetchText(rssUrl);
+    const xml = await fetchText(toHttps(rssUrl));
     return parseLibrivoxRss(xml);
   } catch (e) {
     console.warn("RSS expand failed:", e.message);
@@ -220,12 +237,16 @@ async function resolveAudiobook({ id, title, author, lvId, expandRss }) {
   let baseStreams = Array.isArray(lv?.streams) ? [...lv.streams] : [];
   if (expandRss && lv?.rss) {
     const rssTracks = await expandRssToStreams(lv.rss);
-    // Dedupe by URL
+    // Dedupe by URL; keep RSS order (already numbered ascending)
     const seen = new Set(baseStreams.map(s => s.url));
     for (const t of rssTracks) {
-      if (!seen.has(t.url)) baseStreams.unshift(t); // put RSS first (optional)
+      if (!seen.has(t.url)) {
+        baseStreams.push(t);   // append after section MP3s (or change to unshift if you prefer RSS first)
+        seen.add(t.url);
+      }
     }
   }
+
 
   const meta = {
     id,
