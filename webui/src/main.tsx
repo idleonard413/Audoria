@@ -58,6 +58,17 @@ function App() {
   const [pickerMeta, setPickerMeta] = React.useState<{ id: string; title?: string; author?: string; cover?: string } | null>(null);
   const [pickerStreams, setPickerStreams] = React.useState<StreamItem[]>([]);
 
+  function uniqById<T extends { id: string }>(arr: T[]): T[] {
+    const seen = new Set<string>();
+    const out: T[] = [];
+    for (const it of arr) {
+      if (!it?.id || seen.has(it.id)) continue;
+      seen.add(it.id);
+      out.push(it);
+    }
+    return out;
+  }
+
   // ---- Effects ----
   // Load current user (JWT) once
   React.useEffect(() => {
@@ -154,14 +165,15 @@ const openPicker = React.useCallback(async (id: string) => {
       </div>
       <div className="row-wrap">
         <div className="row">
-          {results.map((b: any) => (
+          const deduped = uniqById(results);
+
+          {deduped.map((b: any, i: number) => (
             <AudiobookCard
-              key={b.id}
+              key={`${b.id}#${i}`}             // unique even if same id slips through
               title={b.name || "Untitled"}
-              author={b.author}
-              poster={b.cover}
-              durationSec={b.duration}
-              onClick={() => openPicker(b.id)}
+              author={b.author || ""}
+              poster={b.poster || undefined}
+              onClick={() => openPicker(b.id)}  // still pass the real id
             />
           ))}
         </div>

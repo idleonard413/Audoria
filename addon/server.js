@@ -102,6 +102,7 @@ function passThroughHeaders(originHeaders, res) {
   res.setHeader("Timing-Allow-Origin", "*");
 }
 
+
 // Safe JSON fetch (timeout, never throws)
 async function safeFetchJson(url, { timeoutMs = 4000, headers = {} } = {}) {
   try {
@@ -365,7 +366,7 @@ app.get("/catalog/:type/:id.json", async (req, res) => {
       const author = (b.authors && b.authors[0])
         ? `${b.authors[0].first_name || ""} ${b.authors[0].last_name || ""}`.trim()
         : "";
-      const id = `audiobook:${slugify(`${title}-${author}`)}`;
+      const id = `audiobook:${slugify(`${title}-${author}`)}-${b.id}`;
 
       // cache lvId for fast stream lookup
       catalogIndex.set(id, { title, author, lvId: b.id });
@@ -476,7 +477,9 @@ app.get("/search.json", async (req, res) => {
     const metas = data.docs.slice(0, limit).map(doc => {
       const title = doc.title || "Untitled";
       const author = (doc.author_name && doc.author_name[0]) || "";
-      const id = `audiobook:${slugify(`${title}-${author}`)}`;
+      const workKey = (doc.key || "").replace("/works/", "");
+      const baseSlug = slugify(`${title}-${author}`);
+      const id = workKey ? `audiobook:${baseSlug}-ol${workKey}` : `audiobook:${baseSlug}`;
 
       // cache minimal (no lvId yet; meta/stream will resolve later)
       catalogIndex.set(id, { title, author });
