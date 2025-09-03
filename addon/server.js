@@ -26,6 +26,21 @@ function parseHmsToSeconds(hms) {
   return hms.split(":").reduce((acc, v) => acc * 60 + Number(v), 0);
 }
 
+// ----- Safe JSON fetch with timeout; never throws -----
+async function safeFetchJson(url, { timeoutMs = 2500, headers = {} } = {}) {
+  try {
+    const ac = new AbortController();
+    const t = setTimeout(() => ac.abort(), timeoutMs);
+    const res = await fetch(url, { headers, signal: ac.signal, redirect: "follow" });
+    clearTimeout(t);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null; // swallow ECONNREFUSED / timeouts / aborts
+  }
+}
+
+
 // In-memory index so /meta and /stream can resolve by id created from list results
 // id => { title, author, lvId }
 const catalogIndex = new Map();
@@ -154,15 +169,19 @@ app.get("/img", async (req, res) => {
 });
 
 // ----------------- Open Library (covers/desc) --------------
+const OL_DISABLED = process.env.OL_DISABLED === "1";
+
 async function olSearch(title, author) {
+  if (OL_DISABLED) return null;
+
   const url = new URL("https://openlibrary.org/search.json");
   if (title) url.searchParams.set("title", title);
   if (author) url.searchParams.set("author", author);
   url.searchParams.set("limit", "1");
 
-  const res = await fetch(url.toString());
-  if (!res.ok) return null;
-  const data = await res.json();
+  const data = await safeFetchJson(url.toString(), { timeoutMs: 2500 });
+  if (!data) return null;
+
   const doc = (data.docs || [])[0];
   if (!doc) return null;
 
@@ -177,17 +196,14 @@ async function olSearch(title, author) {
     cover = `https://covers.openlibrary.org/b/olid/${olid}-L.jpg`;
   }
 
-  // try to get description from Work JSON
-  let description = doc.first_sentence?.join?.(" ") || "";
-  if ((!description || description.length < 10) && doc.key && doc.key.startsWith("/works/")) {
-    try {
-      const workRes = await fetch(`https://openlibrary.org${doc.key}.json`);
-      if (workRes.ok) {
-        const work = await workRes.json();
-        if (typeof work.description === "string") description = work.description;
-        else if (typeof work.description?.value === "string") description = work.description.value;
-      }
-    } catch (_) {}
+  // optional description from Work JSON — also safe
+  let description = "";
+  if (doc.key && doc.key.startsWith("/works/")) {
+    const work = await safeFetchJson(`https://openlibrary.org${doc.key}.json`, { timeoutMs: 2500 });
+    if (work) {
+      if (typeof work.description === "string") description = work.description;
+      else if (typeof work.description?.value === "string") description = work.description.value;
+    }
   }
 
   return {
@@ -375,8 +391,10 @@ async function resolveAudiobook({ id, title, author, lvId, expandRss }) {
   const lv = await lvFetchById(lvId);
 
   // 2) In parallel, ask OL for nicer cover/description
-  const ol = await olSearch(lv?.title || title, lv?.author || author);
-
+  let ol = null;
+  try {
+    ol = await olSearch(lv?.title || title, lv?.author || author);
+  } catch { /* swallow */ }
   // Decide final poster (IA → OL → LV fallback)
   const posterRaw =
     bestCover({
