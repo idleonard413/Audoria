@@ -149,8 +149,8 @@ body{
   transition: transform .18s ease, box-shadow .18s ease, filter .18s ease;
 }
 .ab-art {
-  aspect-ratio: 2 / 3;           /* uniform size */
-  border-radius: var(--card-radius);
+  aspect-ratio: 1 / 1;           /* uniform size */
+  border-radius: 0;
   overflow: hidden;
   background: #1a1f2b;
   box-shadow: var(--card-shadow);
@@ -160,7 +160,8 @@ body{
 .ab-fallback {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
+  background: #0e0f14;
   display: block;
 }
 .ab-card:hover {
