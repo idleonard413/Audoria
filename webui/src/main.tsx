@@ -11,6 +11,7 @@ import AudiobookCard from "@/components/AudiobookCard";
 import StreamPicker, { StreamItem } from "@/components/StreamPicker";
 import Login from "./pages/Login";
 import { auth } from "./auth/store";
+import ErrorBoundary from "./components/ErrorBoundary";
 import "./styles/app.css";
 
 function uniqById<T extends { id: string }>(arr: T[]): T[] {
@@ -194,13 +195,13 @@ const openPicker = React.useCallback(async (id: string) => {
       <Sidebar />
       <TopBar query={query} setQuery={setQuery} />
 
-      <main className="content">
-        {query.trim()
-          ? <SearchView />
-          : tab === "discover" ? <Discover openItem={openPicker} />
-          : tab === "library"  ? <Library />
-          : <Addons />}
-      </main>
+    <main className="content">
+      {query.trim()
+        ? <ErrorBoundary><SearchView /></ErrorBoundary>
+        : tab === "discover" ? <ErrorBoundary><Discover openItem={openPicker} /></ErrorBoundary>
+        : tab === "library"  ? <ErrorBoundary><Library /></ErrorBoundary>
+        : <ErrorBoundary><Addons /></ErrorBoundary>}
+    </main>
 
       <StreamPicker
         open={pickerOpen}
