@@ -31,18 +31,6 @@ function parseHmsToSeconds(hms) {
 const catalogIndex = new Map();
 
 // --- Safe allowlist for media proxying ---
-const ALLOW_MEDIA_HOSTS = [
-  // Internet Archive mirrors & main
-  "archive.org", "www.archive.org",
-  "ia600101.us.archive.org","ia600102.us.archive.org","ia600103.us.archive.org","ia600104.us.archive.org",
-  "ia601***.us.archive.org", // wildcard note: see matcher below
-  "ia800***.us.archive.org", // many IA mirrors exist; we match 'ia[0-9].*.us.archive.org'
-  // LibriVox
-  "librivox.org","www.librivox.org","www.librivox.org",
-  // AudioAZ (if you decide to proxy their mp3 too)
-  "audioaz.com","www.audioaz.com",
-];
-
 function hostAllowed(u) {
   try {
     const h = new URL(u).host.toLowerCase();
@@ -84,7 +72,6 @@ function bestCover({ olCover, url_iarchive, url_librivox }) {
   if (url_librivox) return `${url_librivox.replace(/\/$/, "")}/cover.jpg`; // may 404 sometimes
   return null;
 }
-
 
 // copies a subset of headers from origin
 function passThroughHeaders(originHeaders, res) {
@@ -224,6 +211,7 @@ async function lvFetchById(lvId) {
   const data = await res.json();
   const rec = (data?.books || [])[0];
   if (!rec) return null;
+
   const cover = bestCover({
     olCover: null, // OL not available here yet
     url_iarchive: rec.url_iarchive,
@@ -258,7 +246,6 @@ async function lvFetchById(lvId) {
     otherStreams.push({ title: "LibriVox RSS", url: rec.url_rss, mime: "application/rss+xml" });
   }
 
-  const cover = rec?.url_librivox ? rec.url_librivox.replace(/\/$/, "") + "/cover.jpg" : undefined;
   const author = rec.authors?.[0]
     ? `${rec.authors[0].first_name || ""} ${rec.authors[0].last_name || ""}`.trim()
     : undefined;
@@ -292,16 +279,6 @@ async function fetchText(u) {
   });
   if (!res.ok) throw new Error(`fetch ${u} -> ${res.status}`);
   return await res.text();
-}
-
-/**
- * Very small RSS parser for LibriVox:
- * - Finds each <item> ... </item>
- * - Pulls <title>, <enclosure url="...">, <guid>, <link>, <itunes:duration> or <duration>
- * Returns [{title,url,duration}]
- */
-function toHttps(u) {
-  return typeof u === "string" ? u.replace(/^http:\/\//i, "https://") : u;
 }
 
 /** LibriVox RSS -> [{ title, url, mime, duration, idx }] */
@@ -356,7 +333,6 @@ function parseLibrivoxRss(xml) {
   }));
 }
 
-
 async function expandRssToStreams(rssUrl) {
   try {
     const xml = await fetchText(toHttps(rssUrl));
@@ -375,11 +351,14 @@ async function resolveAudiobook({ id, title, author, lvId, expandRss }) {
   // 2) In parallel, ask OL for nicer cover/description
   const ol = await olSearch(lv?.title || title, lv?.author || author);
 
-  const posterRaw = bestCover({
-    olCover: ol?.cover || null,
-    url_iarchive: lv?.url_iarchive || null,
-    url_librivox: null, // only fallback if both are missing
-  }) || lv?.cover || null;
+  // Decide final poster (IA → OL → LV fallback)
+  const posterRaw =
+    bestCover({
+      olCover: ol?.cover || null,
+      url_iarchive: lv?.url_iarchive || null,
+      url_librivox: null, // only fallback if both are missing
+    }) || lv?.cover || null;
+
   // 3) Merge streams: per-track MP3s from sections + (optionally) expanded RSS MP3s
   let baseStreams = Array.isArray(lv?.streams) ? [...lv.streams] : [];
   if (expandRss && lv?.rss) {
@@ -394,13 +373,12 @@ async function resolveAudiobook({ id, title, author, lvId, expandRss }) {
     }
   }
 
-
   const meta = {
     id,
     type: "other",
     name: (ol?.title || lv?.title || title || "").trim(),
     description: (ol?.description || lv?.description || "").trim(),
-    poster: ol?.cover || lv?.cover || null,
+    poster: posterRaw, // <-- use the computed poster
     audiobook: {
       author: (ol?.author || lv?.author || author || "").trim(),
       duration: lv?.duration,
@@ -626,13 +604,11 @@ app.get("/meta/:type/:id.json", async (req, res) => {
       lvId: intent.lvId, // pass LV id when we have it
       expandRss: false,  // not needed for meta
     });
-    
+
     const base = `${req.protocol}://${req.get("host")}`;
-    meta.poster = posterRaw;
     if (meta.poster) {
       meta.poster = `${base}/img?u=${encodeURIComponent(toHttps(meta.poster))}`;
     }
-
 
     res.json({ meta });
   } catch (e) {
@@ -684,14 +660,15 @@ app.get("/stream/:type/:id.json", async (req, res) => {
         console.warn("audioaz hint failed:", e.message);
       }
     }
+
+    // Proxy streams so the browser doesn’t hit CORS/ORB
     const base = `${req.protocol}://${req.get("host")}`;
-      for (const s of streams) {
-        if (s && s.url) {
-          s.url = `${base}/proxy?u=${encodeURIComponent(toHttps(s.url))}`;
-          // keep mime/duration/title as-is
-        }
+    for (const s of streams) {
+      if (s && s.url) {
+        s.url = `${base}/proxy?u=${encodeURIComponent(toHttps(s.url))}`;
+      }
     }
-    
+
     res.json({ streams });
   } catch (e) {
     console.error("stream error", e);
