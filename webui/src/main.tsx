@@ -8,7 +8,6 @@ import Library from "@/pages/Library";
 import Addons from "@/pages/Addons";
 import Player from "@/components/Player";
 import AudiobookCard from "@/components/AudiobookCard";
-import { getCore } from "@/core";
 import StreamPicker, { StreamItem } from "@/components/StreamPicker";
 import Login from "./pages/Login";
 import { auth } from "./auth/store";
@@ -92,14 +91,28 @@ function App() {
     auth.me(ADDON_BASE).then(setUser);
   }, []);
 
-  const openPicker = React.useCallback(async (id: string) => {
-    const core = await getCore();
-    const meta = await core.getMeta(id);
-    const streams = await core.getStreams(id);
-    setPickerMeta({ id, title: meta.title, author: meta.author, cover: meta.cover });
-    setPickerStreams(streams);
-    setPickerOpen(true);
-  }, []);
+
+const openPicker = React.useCallback(async (id: string) => {
+  // 1) Fetch metadata from addon
+  const metaRes = await fetch(`${ADDON_BASE}/meta/other/${encodeURIComponent(id)}.json`);
+  const metaJson = await metaRes.json();
+  const m = metaJson?.meta || {};
+
+  // 2) Fetch streams from addon
+  const streamRes = await fetch(`${ADDON_BASE}/stream/other/${encodeURIComponent(id)}.json`);
+  const sJson = await streamRes.json();
+  const streams = Array.isArray(sJson?.streams) ? sJson.streams : [];
+
+  // 3) Populate picker
+  setPickerMeta({
+    id,
+    title: m.name || "Untitled",
+    author: m?.audiobook?.author || "",
+    cover: m.poster || undefined,
+  });
+  setPickerStreams(streams);
+  setPickerOpen(true);
+}, []);
 
   const chooseStream = React.useCallback((s: StreamItem) => {
     if (!pickerMeta) return;
