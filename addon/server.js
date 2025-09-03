@@ -201,6 +201,41 @@ async function olEnrich(title, author) {
   return out;
 }
 
+function parseRssTracks(xml) {
+  try {
+    const items = xml.split(/<item[\s>]/i).slice(1); // crude split
+    const tracks = [];
+    let i = 0;
+    for (const it of items) {
+      // enclosure url
+      const mUrl = it.match(/<enclosure[^>]*url="([^"]+)"/i);
+      const url = mUrl ? mUrl[1] : null;
+      if (!url) continue;
+
+      // optional title
+      const mTitle = it.match(/<title>([^<]+)<\/title>/i);
+      const title = mTitle ? mTitle[1].replace(/<!\[CDATA\[|\]\]>/g, "").trim() : null;
+
+      // optional duration from itunes:duration (hh:mm:ss or mm:ss)
+      const mDur = it.match(/<itunes:duration>([^<]+)<\/itunes:duration>/i);
+      const dur = mDur ? parseHmsToSeconds(mDur[1].trim()) : undefined;
+
+      i += 1;
+      tracks.push({
+        title: title ? `Track ${i}: ${title}` : `Track ${i}`,
+        url: toHttps(url),
+        mime: "audio/mpeg",
+        duration: dur
+      });
+    }
+
+    // RSS is usually newest→oldest; reverse to oldest→newest
+    return tracks.reverse();
+  } catch {
+    return [];
+  }
+}
+
 // -------------- LibriVox queries (id + list + streams) ---
 function bestArchiveCover(url_iarchive, url_librivox) {
   // prefer archive cover if we have identifier, else LV cover.jpg
@@ -253,27 +288,39 @@ async function lvFetchById(lvId) {
   const rec = (data.books || [])[0];
   if (!rec) return null;
 
-  // Build MP3 streams ascending
-  const mp3 = [];
-  if (Array.isArray(rec.sections)) {
+  // Build MP3 streams ascending (from sections)
+  let mp3 = [];
+  if (Array.isArray(rec.sections) && rec.sections.length) {
     const sections = [...rec.sections].sort((a, b) => {
       const an = Number(a?.section_number ?? a?.track_number ?? a?.id ?? 0);
       const bn = Number(b?.section_number ?? b?.track_number ?? b?.id ?? 0);
       return (Number.isFinite(an) && Number.isFinite(bn)) ? (an - bn) : 0;
     });
     sections.forEach((s, i) => {
-      const url = s?.file_url ? toHttps(s.file_url) : null;
-      if (!url || (!url.endsWith(".mp3") && !url.includes(".mp3?"))) return;
+      const u = s?.file_url ? toHttps(s.file_url) : null;
+      if (!u || (!u.endsWith(".mp3") && !u.includes(".mp3"))) return;
       const dur = typeof s.playtime_seconds === "number"
         ? s.playtime_seconds
         : (typeof s.playtime === "string" ? parseHmsToSeconds(s.playtime) : undefined);
       mp3.push({
         title: (s.section_title ? `Track ${i + 1}: ${s.section_title}` : `Track ${i + 1}`),
-        url,
+        url: u,
         mime: "audio/mpeg",
         duration: dur
       });
     });
+  }
+
+  // 🔁 Fallback: if no usable sections, parse the RSS
+  if ((!mp3 || mp3.length === 0) && rec.url_rss) {
+    try {
+      const rssRes = await fetch(toHttps(rec.url_rss), { redirect: "follow" });
+      if (rssRes.ok) {
+        const xml = await rssRes.text();
+        const fromRss = parseRssTracks(xml);
+        if (fromRss.length) mp3 = fromRss;
+      }
+    } catch {}
   }
 
   return {
@@ -288,6 +335,7 @@ async function lvFetchById(lvId) {
     streams: mp3
   };
 }
+
 
 async function lvList(limit = 50, offset = 0) {
   const u = new URL(LV_BASE);
