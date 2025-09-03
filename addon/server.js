@@ -914,13 +914,10 @@ app.put("/progress", authRequired, (req, res) => {
 
 app.get("/continue", authRequired, (req, res) => {
   const limit = Math.max(1, Math.min(50, parseInt(req.query.limit, 10) || 20));
-  const rows = db.prepare(\`
-    SELECT item_id, position_sec, duration_sec, title, author, poster, src, updated_at
-    FROM progress
-    WHERE user_id = ?
-    ORDER BY updated_at DESC
-    LIMIT ?
-  \`).all(req.user.id, limit);
+  const rows = db.prepare(
+    "SELECT item_id, position_sec, duration_sec, title, author, poster, src, updated_at " +
+    "FROM progress WHERE user_id = ? ORDER BY updated_at DESC LIMIT ?"
+  ).all(req.user.id, limit);
 
   res.json({
     items: rows.map(r => ({
