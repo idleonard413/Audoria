@@ -1,17 +1,15 @@
 // server.js — Audiobook add-on with LibriVox catalog, OL enrichment, AudioAZ & RSS expansion
 const express = require("express");
 const cors = require("cors");
-const fetch = require("node-fetch"); // v2 for CommonJS
-const { URL: NodeURL } = require("url");
+const fetch = require("node-fetch");
+const bodyParser = require("body-parser");   // <-- here
+const Database = require("better-sqlite3");
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
 
 const app = express();
 app.use(cors());
 app.use(bodyParser.json());
-
-const bodyParser = require("body-parser");
-const Database = require("better-sqlite3");
-const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
 
 
 // ------------------------- Config -------------------------
