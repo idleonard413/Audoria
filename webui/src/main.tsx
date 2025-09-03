@@ -19,6 +19,8 @@ const ADDON_BASE =
   (window as any).__ADDON_BASE ||
   "http://localhost:7000";
 
+// in main.tsx near the ADDON_BASE definition
+console.log('ADDON_BASE =', ((import.meta as any)?.env?.VITE_ADDON_URL), (window as any).__ADDON_BASE);
 
 type Tab = "discover" | "library" | "addons";
 type Chapter = { title: string; start: number };
