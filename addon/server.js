@@ -43,22 +43,48 @@ const ALLOW_MEDIA_HOSTS = [
   "audioaz.com","www.audioaz.com",
 ];
 
-// simple host check with patterns for ia*.us.archive.org
 function hostAllowed(u) {
   try {
     const h = new URL(u).host.toLowerCase();
     if (h.endsWith(".us.archive.org")) return /^ia\d{3,}\.us\.archive\.org$/.test(h);
-    return [
-      "archive.org", "www.archive.org",
-      "librivox.org","www.librivox.org",
-      "audioaz.com","www.audioaz.com",
-    ].includes(h);
+    // Main Archive and common subdomains
+    if (h === "archive.org" || h === "www.archive.org") return true;
+    // Open Library covers
+    if (h === "covers.openlibrary.org") return true;
+    // LibriVox
+    if (h === "librivox.org" || h === "www.librivox.org") return true;
+    // AudioAZ (optional)
+    if (h === "audioaz.com" || h === "www.audioaz.com") return true;
+    return false;
   } catch { return false; }
 }
 
 function toHttps(u) {
   return typeof u === "string" ? u.replace(/^http:\/\//i, "https://") : u;
 }
+
+function iaIdentifierFromUrl(url_iarchive) {
+  if (!url_iarchive) return null;
+  try {
+    const u = new URL(url_iarchive);
+    // usually https://archive.org/details/<identifier>
+    const parts = u.pathname.split("/").filter(Boolean);
+    const i = parts.indexOf("details");
+    if (i >= 0 && parts[i + 1]) return parts[i + 1];
+    // sometimes it's already the identifier
+    return parts[parts.length - 1] || null;
+  } catch { return null; }
+}
+
+/** Decide the best cover, without proxy prefix (we add /img later) */
+function bestCover({ olCover, url_iarchive, url_librivox }) {
+  const iaId = iaIdentifierFromUrl(url_iarchive);
+  if (iaId) return `https://archive.org/services/img/${encodeURIComponent(iaId)}`;
+  if (olCover) return olCover;
+  if (url_librivox) return `${url_librivox.replace(/\/$/, "")}/cover.jpg`; // may 404 sometimes
+  return null;
+}
+
 
 // copies a subset of headers from origin
 function passThroughHeaders(originHeaders, res) {
@@ -198,6 +224,11 @@ async function lvFetchById(lvId) {
   const data = await res.json();
   const rec = (data?.books || [])[0];
   if (!rec) return null;
+  const cover = bestCover({
+    olCover: null, // OL not available here yet
+    url_iarchive: rec.url_iarchive,
+    url_librivox: rec.url_librivox,
+  });
 
   // Collect streams; prefer per-track MP3s from sections; keep ZIP/RSS (UI filters)
   const mp3Streams = [];
@@ -237,6 +268,7 @@ async function lvFetchById(lvId) {
     author,
     description: rec.description || "",
     cover,
+    url_iarchive: rec.url_iarchive || null,
     streams: [...mp3Streams, ...otherStreams],
     duration: rec.totaltime_seconds ? Number(rec.totaltime_seconds) : undefined,
     chapters: Array.isArray(rec.sections)
@@ -343,6 +375,11 @@ async function resolveAudiobook({ id, title, author, lvId, expandRss }) {
   // 2) In parallel, ask OL for nicer cover/description
   const ol = await olSearch(lv?.title || title, lv?.author || author);
 
+  const posterRaw = bestCover({
+    olCover: ol?.cover || null,
+    url_iarchive: lv?.url_iarchive || null,
+    url_librivox: null, // only fallback if both are missing
+  }) || lv?.cover || null;
   // 3) Merge streams: per-track MP3s from sections + (optionally) expanded RSS MP3s
   let baseStreams = Array.isArray(lv?.streams) ? [...lv.streams] : [];
   if (expandRss && lv?.rss) {
@@ -401,7 +438,11 @@ async function lvList(limit = 50, offset = 0) {
       ? `${b.authors[0].first_name || ""} ${b.authors[0].last_name || ""}`.trim()
       : undefined;
     const id = `audiobook:${slugify(`${title}-${author || ""}`)}`;
-    const poster = b.url_librivox ? `${b.url_librivox.replace(/\/$/, "")}/cover.jpg` : undefined;
+    const poster = bestCover({
+      olCover: null, // we keep catalog fast; OL is used at /meta time
+      url_iarchive: b.url_iarchive,
+      url_librivox: b.url_librivox,
+    });
 
     // index for later resolution in /meta and /stream — include LV numeric id
     catalogIndex.set(id, { title, author, lvId: b.id });
@@ -553,7 +594,12 @@ app.get("/catalog/:type/:id.json", async (req, res) => {
 
   try {
     const metas = await lvList(limit, offset);
-    res.json({ metas });
+    const base = `${req.protocol}://${req.get("host")}`;
+    const metasProxied = metas.map(m => {
+      const url = m.poster ? `${base}/img?u=${encodeURIComponent(toHttps(m.poster))}` : null;
+      return { ...m, poster: url };
+    });
+    res.json({ metas: metasProxied });
   } catch (e) {
     console.error("catalog error", e);
     res.json({ metas: [] });
@@ -581,11 +627,13 @@ app.get("/meta/:type/:id.json", async (req, res) => {
       expandRss: false,  // not needed for meta
     });
     
+    const base = `${req.protocol}://${req.get("host")}`;
+    meta.poster = posterRaw;
     if (meta.poster) {
-      const base = `${req.protocol}://${req.get("host")}`;
       meta.poster = `${base}/img?u=${encodeURIComponent(toHttps(meta.poster))}`;
     }
-    
+
+
     res.json({ meta });
   } catch (e) {
     console.error("meta error", e);
