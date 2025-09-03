@@ -221,20 +221,44 @@ async function lvFetchById(lvId) {
   // Collect streams; prefer per-track MP3s from sections; keep ZIP/RSS (UI filters)
   const mp3Streams = [];
   if (Array.isArray(rec.sections)) {
-    rec.sections.forEach((s, i) => {
+    // Sort by an explicit number if present, else by title number, else by index
+    const sections = [...rec.sections].sort((a, b) => {
+      const an = Number(a?.section_number ?? a?.track_number ?? a?.id ?? 0);
+      const bn = Number(b?.section_number ?? b?.track_number ?? b?.id ?? 0);
+      if (Number.isFinite(an) && Number.isFinite(bn) && an !== bn) return an - bn;
+
+      // fallback: try to pull a leading number from section_title (e.g., "01 - Chapter One")
+      const num = (s) => {
+        const m = String(s?.section_title ?? "").match(/^\s*(\d{1,3})\b/);
+        return m ? Number(m[1]) : Infinity;
+      };
+      const at = num(a), bt = num(b);
+      if (at !== bt) return at - bt;
+
+      // final fallback: stable order
+      return 0;
+    });
+
+    sections.forEach((s, i) => {
       const url = s?.file_url ? toHttps(s.file_url) : null;
-      if (url && (url.endsWith(".mp3") || url.includes(".mp3?"))) {
-        const dur =
-          typeof s.playtime_seconds === "number"
-            ? s.playtime_seconds
-            : (typeof s.playtime === "string" ? parseHmsToSeconds(s.playtime) : undefined);
-        mp3Streams.push({
-          title: `Track ${i + 1}: ${s.section_title || ""}`.trim(),
-          url,
-          mime: "audio/mpeg",
-          duration: dur,
-        });
-      }
+      if (!url || (!url.endsWith(".mp3") && !url.includes(".mp3?"))) return;
+
+      const dur =
+        typeof s.playtime_seconds === "number"
+          ? s.playtime_seconds
+          : (typeof s.playtime === "string" ? parseHmsToSeconds(s.playtime) : undefined);
+
+      // Numbered, consistent titles
+      const base = (s.section_title || "").trim();
+      const label = base ? `Track ${i + 1}: ${base}` : `Track ${i + 1}`;
+
+      mp3Streams.push({
+        title: label,
+        url,
+        mime: "audio/mpeg",
+        duration: dur,
+       idx: i + 1,
+     });
     });
   }
 
@@ -320,6 +344,8 @@ function parseLibrivoxRss(xml) {
       mime: "audio/mpeg",
       duration,
     });
+
+    
   }
 
   // RSS is newest-first; show ascending
