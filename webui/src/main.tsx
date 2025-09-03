@@ -67,24 +67,38 @@ function App() {
   };
 
   // User chose a stream in the picker
-  const chooseStream = async (s: StreamItem) => {
+  
+  const chooseStream = (s: StreamItem) => {
     if (!pickerMeta) return;
-    // fetch chapters/duration for richer player
-    const core = await getCore();
-    const meta = await core.getMeta(pickerMeta.id);
-
+    // Update UI state (title/cover/duration)
     setCurrent({
       id: pickerMeta.id,
-      title: meta.title || "Playing",
-      author: meta.author,
+      title: pickerMeta.title ?? (pickerMeta as any).name ?? "Playing",
+      author: pickerMeta.author,
       src: s.url,
       sourceTitle: s.title || s.name,
-      chapters: meta.chapters,
-      duration: s.duration ?? meta.duration,
-      cover: pickerMeta.cover
+      chapters: (pickerMeta as any).chapters,
+      duration: s.duration ?? (pickerMeta as any).duration,
+      cover: (pickerMeta as any).cover
     });
-    setPickerOpen(false);
+
+    // Try to start playback immediately within the same user gesture
+    const a = (window as any).__abAudioEl as HTMLAudioElement | undefined;
+    if (a) {
+      try {
+        if (a.src !== s.url) {
+          a.src = s.url;
+          a.load();
+        }
+        void a.play();
+      } catch (err) {
+        console.warn("Autoplay blocked:", err);
+      }
+    }
+
+    setPickerOpen(false); // close picker
   };
+
 
   const SearchView = () => (
     <div>

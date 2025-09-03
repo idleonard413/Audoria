@@ -17,6 +17,11 @@ type Props = {
 
 export default function Player(p: Props) {
   const audioRef = React.useRef<HTMLAudioElement | null>(null);
+  // Expose the <audio> element globally so a click in StreamPicker can call play()
+  React.useEffect(() => {
+    (window as any).__abAudioEl = audioRef.current || null;
+    return () => { (window as any).__abAudioEl = null; };
+  }, []);
   const [time, setTime] = React.useState(0);
   const [playing, setPlaying] = React.useState(false);
   const [mediaDur, setMediaDur] = React.useState<number>(0);
@@ -104,7 +109,7 @@ export default function Player(p: Props) {
           <audio
             ref={audioRef}
             src={p.src}
-            crossOrigin="anonymous"
+            crossOrigin="anonymous" playsInline
             preload="metadata"
             onLoadedMetadata={(e) => {
               const a = e.currentTarget as HTMLAudioElement;
