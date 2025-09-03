@@ -1,0 +1,61 @@
+// Core adapter for @stremio/stremio-core-web (WASM).
+// This file provides a thin abstraction so the rest of the app doesn't need to know
+// whether core is available. In dev, we can mock; in prod, we can use the real core.
+export type AudiobookMeta = {
+  id: string;
+  title: string;
+  author?: string;
+  description?: string;
+  cover?: string;
+  duration?: number; // seconds
+  chapters?: { title: string; start: number; }[];
+};
+
+export type Stream = {
+  url: string;
+  mime?: string;
+  title?: string;
+  headers?: Record<string, string>;
+};
+
+export interface CoreLike {
+  search(query: string): Promise<AudiobookMeta[]>;
+  getCatalog(section: "popular" | "trending"): Promise<AudiobookMeta[]>;
+  getStreams(id: string): Promise<Stream[]>;
+}
+
+class MockCore implements CoreLike {
+  async search(query: string) {
+    const { popular, trending } = await import("../data/sampleCatalog.json");
+    const all = [...popular, ...trending];
+    return all.filter(i => i.title.toLowerCase().includes(query.toLowerCase()));
+  }
+  async getCatalog(section: "popular" | "trending") {
+    const data = await import("../data/sampleCatalog.json");
+    return data[section];
+  }
+  async getStreams(id: string) {
+    // Return a public-domain sample MP3 stream as a placeholder
+    return [
+      { url: "https://archive.org/download/LibrivoxCdCoverArt8/cover_art_8_1108_thumb.jpg", title: "Cover (placeholder image stream)" },
+      // Replace with real audio stream URLs provided by Add-ons
+    ];
+  }
+}
+
+export async function getCore(): Promise<CoreLike> {
+  try {
+    // Dynamically import the real core if the user has built/linked it.
+    // eslint-disable-next-line
+    // @ts-ignore
+    const core = await import("@stremio/stremio-core-web");
+    // Expose a minimal wrapper over methods we use. You'll need to wire these
+    // to the real Stremio Core semantics (addons -> catalogs -> meta -> streams).
+    // For now, we return the mock and leave detailed wiring to setup instructions.
+    console.warn("stremio-core-web detected, but adapter wiring is TODO. Using mock for now.");
+    return new MockCore();
+  } catch (e) {
+    console.info("stremio-core-web not found, using MockCore.", e && (e as Error).message);
+    return new MockCore();
+  }
+}

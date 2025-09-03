@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Stremio Audiobooks</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+    background: radial-gradient(1200px 600px at 10% 0%, #181b28 0%, #0f1118 60%, #0b0d13 100%);
+    color: #e6e7ea;
+  }
+
+  .app { display: grid; grid-template-columns: 72px 1fr; grid-template-rows: 64px 1fr;
+         grid-template-areas: "sidebar topbar" "sidebar content"; min-height: 100vh; }
+
+  .sidebar { grid-area: sidebar; }
+  .topbar  { grid-area: topbar; position: sticky; top: 0; z-index: 10; }
+  .content { grid-area: content; padding: 24px 28px 108px; }
+
+  /* Sidebar */
+  .rail { height:100%; padding:10px 8px; display:flex; flex-direction:column; gap:10px; align-items:center;
+          border-right:1px solid rgba(255,255,255,.06);
+          background: linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02) 40%, transparent); }
+  .rail .brand { width:40px; height:40px; border-radius:12px; display:grid; place-items:center; background:#5b6cff;
+                 color:#0b0d13; font-weight:800; letter-spacing:.2px; margin:6px 0 8px; }
+  .rail .ico { width:44px; height:44px; border-radius:14px; display:grid; place-items:center; cursor:pointer; color:#cfd3dc; }
+  .rail .ico.active, .rail .ico:hover { background:rgba(255,255,255,.08); color:#fff; }
+
+  /* Topbar */
+  .topbar-wrap { display:flex; align-items:center; justify-content:center; gap:16px; padding:12px 20px;
+                 backdrop-filter:saturate(140%) blur(8px); background:rgba(15,17,24,.5);
+                 border-bottom:1px solid rgba(255,255,255,.06); }
+  .searchbar { width:min(900px, 90vw); display:flex; align-items:center; gap:10px; background:rgba(255,255,255,.06);
+               border:1px solid rgba(255,255,255,.1); border-radius:22px; padding:10px 14px; }
+  .searchbar input { flex:1; background:transparent; border:0; outline:0; color:#fff; font-size:14px; }
+  .top-actions { position:absolute; right:20px; display:flex; gap:10px; }
+  .action-btn { width:40px; height:40px; border-radius:12px; display:grid; place-items:center;
+                background:rgba(255,255,255,.06); color:#e6e7ea; cursor:pointer; }
+  .action-btn:hover { background:rgba(255,255,255,.1); }
+
+  /* Section header */
+  .row-head { display:flex; align-items:center; justify-content:space-between; margin:8px 6px 12px; }
+  .row-title { font-weight:700; letter-spacing:.2px; }
+  .see-all { color:#cfd3dc; font-size:12px; cursor:pointer; }
+  .see-all:hover { color:#fff; text-decoration:underline; }
+
+  /* Row with chevrons */
+  .row-wrap { position: relative; }
+  .row {
+    display:grid; grid-auto-flow:column; grid-auto-columns: 180px; gap:18px; overflow-x:auto; padding:4px 36px 12px;
+    scroll-snap-type:x mandatory;
+  }
+  .row::-webkit-scrollbar { height:10px; }
+  .row::-webkit-scrollbar-thumb { background:rgba(255,255,255,.08); border-radius:999px; }
+  .row-btn {
+    position:absolute; top:50%; transform:translateY(-50%); z-index:2;
+    width:36px; height:36px; border-radius:999px; display:grid; place-items:center;
+    background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.15); cursor:pointer;
+    backdrop-filter: blur(6px);
+  }
+  .row-btn:hover { background:rgba(255,255,255,.14); }
+  .row-btn.left { left:4px; }
+  .row-btn.right { right:4px; }
+
+  /* Audiobook Card */
+  .ab-card {
+    position:relative; scroll-snap-align:start; width:180px; border-radius:18px; overflow:hidden;
+    background:#171a21; box-shadow:0 10px 30px rgba(0,0,0,.40);
+    transform: perspective(700px) rotateX(0deg) rotateY(0deg) translateY(0);
+    transition: transform .18s ease, box-shadow .18s ease, filter .18s ease;
+  }
+  .ab-card:hover { box-shadow:0 18px 42px rgba(0,0,0,.55); filter:brightness(1.02); }
+  .ab-thumb { width:100%; height:210px; background:#222; display:grid; place-items:center; }
+  .ab-thumb img { width:100%; height:100%; object-fit:cover; display:block; }
+  .ab-overlay {
+    position:absolute; inset:0; display:grid; align-content:end; padding:8px;
+    background:linear-gradient(180deg, rgba(0,0,0,0), rgba(0,0,0,.35) 55%, rgba(0,0,0,.55));
+    opacity:0; transition:opacity .18s ease;
+  }
+  .ab-card:hover .ab-overlay { opacity:1; }
+  .ab-play { position:absolute; inset:0; display:grid; place-items:center; pointer-events:none; }
+  .ab-play .btn { width:46px; height:46px; border-radius:50%; display:grid; place-items:center;
+                  background:#ffffffd9; color:#101216; font-weight:900; }
+
+  .ab-meta { padding:10px 10px 12px; }
+  .ab-title { font-size:13.5px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ab-author { font-size:12px; color:#cfd3dc; opacity:.8; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px; }
+  .ab-badges { display:flex; gap:6px; margin-top:6px; }
+  .badge { font-size:10px; opacity:.7; background:rgba(255,255,255,.1); padding:4px 6px; border-radius:999px; }
+
+  .progress { position:absolute; left:10px; right:10px; bottom:54px; height:6px; border-radius:8px; background:rgba(255,255,255,.2); overflow:hidden; }
+  .progress > span { display:block; height:100%; width:40%; background:#5b6cff; }
+
+  /* Skeleton */
+  .skeleton { width:180px; height:210px; border-radius:18px; background:linear-gradient(90deg,#1a1d28,#222634,#1a1d28);
+              background-size:200% 100%; animation:shimmer 1.2s infinite; }
+  @keyframes shimmer { 0%{background-position:-100% 0} 100%{background-position:100% 0} }
+
+  footer.player { position: sticky; bottom:0; background:#0d0f13; border-top:1px solid rgba(255,255,255,.06); }
+</style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

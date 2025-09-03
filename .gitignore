@@ -1,0 +1,25 @@
+# global
+.DS_Store
+Thumbs.db
+*.log
+node_modules/
+dist/
+build/
+*.local
+
+# webui (Vite/React/TypeScript)
+webui/.vite/
+webui/.cache/
+webui/.turbo/
+webui/*.local
+webui/*.env.local
+webui/.env*
+
+# addon (Node)
+addon/.env
+addon/.env.*
+addon/*.local
+
+# OS/editor
+.vscode/
+.idea/

@@ -1,0 +1,62 @@
+{
+  "popular": [
+    {
+      "id": "bk_1",
+      "title": "The Adventures of Sherlock Holmes",
+      "author": "Arthur Conan Doyle",
+      "cover": "",
+      "duration": 43000
+    },
+    {
+      "id": "bk_2",
+      "title": "Pride and Prejudice",
+      "author": "Jane Austen",
+      "cover": "",
+      "duration": 38000
+    },
+    {
+      "id": "bk_3",
+      "title": "Moby-Dick",
+      "author": "Herman Melville",
+      "cover": "",
+      "duration": 78000
+    },
+    {
+      "id": "bk_4",
+      "title": "Frankenstein",
+      "author": "Mary Shelley",
+      "cover": "",
+      "duration": 32000
+    }
+  ],
+  "trending": [
+    {
+      "id": "bk_5",
+      "title": "The Hound of the Baskervilles",
+      "author": "Arthur Conan Doyle",
+      "cover": "",
+      "duration": 41000
+    },
+    {
+      "id": "bk_6",
+      "title": "Emma",
+      "author": "Jane Austen",
+      "cover": "",
+      "duration": 37000
+    },
+    {
+      "id": "bk_7",
+      "title": "Dracula",
+      "author": "Bram Stoker",
+      "cover": "",
+      "duration": 64000
+    },
+    {
+      "id": "bk_8",
+      "title": "War and Peace",
+      "author": "Leo Tolstoy",
+      "cover": "",
+      "duration": 120000
+    }
+  ]
+}
