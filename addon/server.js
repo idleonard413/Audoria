@@ -8,7 +8,7 @@ const app = express();
 app.use(cors());
 
 // ------------------------- Config -------------------------
-const HOST = process.env.HOST || "127.0.0.1"; // set HOST=0.0.0.0 to expose on LAN
+const HOST = process.env.HOST || "0.0.0.0"; // set HOST=0.0.0.0 to expose on LAN
 const PORT = process.env.PORT || 7000;
 
 const LV_BASE = "https://librivox.org/api/feed/audiobooks"; // LibriVox discovery/info
