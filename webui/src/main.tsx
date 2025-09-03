@@ -13,6 +13,17 @@ import Login from "./pages/Login";
 import { auth } from "./auth/store";
 import "./styles/app.css";
 
+function uniqById<T extends { id: string }>(arr: T[]): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const it of arr) {
+    if (!it?.id || seen.has(it.id)) continue;
+    seen.add(it.id);
+    out.push(it);
+  }
+  return out;
+}
+
 // -------- Runtime add-on base helper (no rebuild required) --------
 function getAddonBase(): string {
   const ls = (() => {
@@ -58,16 +69,6 @@ function App() {
   const [pickerMeta, setPickerMeta] = React.useState<{ id: string; title?: string; author?: string; cover?: string } | null>(null);
   const [pickerStreams, setPickerStreams] = React.useState<StreamItem[]>([]);
 
-  function uniqById<T extends { id: string }>(arr: T[]): T[] {
-    const seen = new Set<string>();
-    const out: T[] = [];
-    for (const it of arr) {
-      if (!it?.id || seen.has(it.id)) continue;
-      seen.add(it.id);
-      out.push(it);
-    }
-    return out;
-  }
 
   // ---- Effects ----
   // Load current user (JWT) once
@@ -157,29 +158,33 @@ const openPicker = React.useCallback(async (id: string) => {
   }, [pickerMeta]);
 
   // ---- Small inline view for search results ----
-  const SearchView = () => (
-    <div>
-      <div className="row-head">
-        <div className="row-title">Search</div>
-        <div className="muted">{searching ? "Searching…" : `${results.length} result${results.length === 1 ? "" : "s"}`}</div>
-      </div>
-      <div className="row-wrap">
-        <div className="row">
-          const deduped = uniqById(results);
+  const SearchView = () => {
+    const deduped = uniqById(results);
 
-          {deduped.map((b: any, i: number) => (
-            <AudiobookCard
-              key={`${b.id}#${i}`}             // unique even if same id slips through
-              title={b.name || "Untitled"}
-              author={b.author || ""}
-              poster={b.poster || undefined}
-              onClick={() => openPicker(b.id)}  // still pass the real id
-            />
-          ))}
+    return (
+      <div>
+        <div className="row-head">
+          <div className="row-title">Search</div>
+          <div className="muted">
+            {searching ? "Searching…" : `${deduped.length} result${deduped.length === 1 ? "" : "s"}`}
+          </div>
+        </div>
+        <div className="row-wrap">
+          <div className="row">
+            {deduped.map((b: any, i: number) => (
+              <AudiobookCard
+                key={`${b.id}#${i}`}
+                title={b.name || "Untitled"}
+                author={b.author || ""}
+                poster={b.poster || undefined}
+                onClick={() => openPicker(b.id)}
+              />
+            ))}
+          </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   // ---- Compute body (no hooks below this line) ----
   const body = !user ? (
