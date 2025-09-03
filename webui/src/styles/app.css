@@ -140,11 +140,26 @@ body{
 .row-btn.right{ right: 4px; }
 
 /* card */
-.ab-card{
-  position: relative; scroll-snap-align: start; width: 180px; border-radius: var(--card-radius); overflow: hidden;
-  background: #171a21; box-shadow: var(--card-shadow);
-  transform: perspective(700px) rotateX(0) rotateY(0) translateY(0);
-  transition: transform .18s ease, box-shadow .18s ease, filter .18s ease;
+.ab-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 180px;                 /* fixed card width */
+  cursor: pointer;
+}
+.ab-art {
+  aspect-ratio: 2 / 3;           /* uniform size */
+  border-radius: var(--card-radius);
+  overflow: hidden;
+  background: #1a1f2b;
+  box-shadow: var(--card-shadow);
+}
+.ab-art img,
+.ab-fallback {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 .ab-card:hover{ box-shadow: 0 18px 42px rgba(0,0,0,.55); filter: brightness(1.02); }
 .ab-thumb{
@@ -157,31 +172,28 @@ body{
   opacity: 0; transition: opacity .18s ease;
 }
 .ab-card:hover .ab-overlay{ opacity: 1; }
-.ab-play{
-  position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none;
-}
-.ab-play .btn{
-  width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center;
-  background: radial-gradient(120px 120px at 30% 30%, var(--accent-400), var(--accent-600));
-  color: #0e0f12; font-weight: 900; box-shadow: 0 6px 18px rgba(0,0,0,.35);
+
+.ab-meta {
+  display: grid;
+  gap: 2px;
 }
 
-.ab-meta{ padding: 10px 10px 12px; }
-.ab-title{
-  /* two-line clamp with safe fallbacks */
+.ab-title {
   font-size: var(--title-size);
   font-weight: 700;
   line-height: 1.25;
   overflow: hidden;
   display: -webkit-box;
+  -webkit-line-clamp: 2;          /* clamp to 2 lines */
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;          /* show up to two lines */
-  /* fallbacks for non-webkit */
-  max-height: calc(2 * 1.25em);
 }
-.ab-author{
-  font-size: var(--meta-size); color: var(--ink-muted); opacity: .9;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px;
+
+.ab-author {
+  font-size: var(--meta-size);
+  color: var(--ink-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .ab-badges{ display: flex; gap: 6px; margin-top: 6px; }
 .badge{
