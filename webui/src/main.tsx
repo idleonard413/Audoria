@@ -11,6 +11,14 @@ import AudiobookCard from "@/components/AudiobookCard";
 import { getCore } from "@/core";
 import StreamPicker, { StreamItem } from "@/components/StreamPicker";
 import { Row, SkeletonRow } from "@/components/Row"; // if used by Discover/Search
+import Login from "./pages/Login";
+import { auth } from "./auth/store";
+
+const ADDON_BASE =
+  ((import.meta as any)?.env?.VITE_ADDON_URL as string) ||
+  (window as any).__ADDON_BASE ||
+  "http://localhost:7000";
+
 
 type Tab = "discover" | "library" | "addons";
 type Chapter = { title: string; start: number };
@@ -38,6 +46,7 @@ function App() {
   
   const [user, setUser] = React.useState<any>(null);
   React.useEffect(()=>{ auth.me(ADDON_BASE).then(setUser); }, []);
+  if (!user) { return <Login addonBase={ADDON_BASE} onAuthed={()=>auth.me(ADDON_BASE).then(setUser)} />; }
 const [pickerOpen, setPickerOpen] = React.useState(false);
   const [pickerMeta, setPickerMeta] = React.useState<{ id: string; title?: string; author?: string; cover?: string } | null>(null);
   const [pickerStreams, setPickerStreams] = React.useState<StreamItem[]>([]);
@@ -56,7 +65,6 @@ const [pickerOpen, setPickerOpen] = React.useState(false);
       } finally { if (!stop) setSearching(false); }
     };
     const t = setTimeout(run, 300);
-    if (!user) { return <Login addonBase={ADDON_BASE} onAuthed={()=>auth.me(ADDON_BASE).then(setUser)} />; }
   return () => { stop = true; clearTimeout(t); };
   }, [query]);
 
@@ -134,7 +142,7 @@ const [pickerOpen, setPickerOpen] = React.useState(false);
       <main className="content">
         {query.trim()
           ? <SearchView/>
-          : tab === "discover" ? <Discover onPlay={openPicker}/>
+          : tab === "discover" ? <Discover openItem={openPicker}/>
           : tab === "library"  ? <Library/>
           : <Addons/>}
       </main>

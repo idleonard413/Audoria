@@ -5,6 +5,7 @@ import { saveProgress } from "../lib/progress";
 type Chapter = { title: string; start: number };
 
 type Props = {
+  id?: string;
   title?: string;
   author?: string;
   cover?: string;
@@ -17,11 +18,13 @@ type Props = {
 };
 
 export default function Player(p: Props) {
+  const audioRef = React.useRef<HTMLAudioElement | null>(null);
+
   const PROG_INTERVAL = 5000;
   React.useEffect(() => {
     const a = audioRef.current;
     if (!a || !p.id) return;
-    let timer;
+    let timer: any;
     const tick = () => {
       const position = Math.floor(a.currentTime || 0);
       const duration = Math.floor((p.duration ?? a.duration) || 0);
@@ -51,7 +54,6 @@ export default function Player(p: Props) {
     };
   }, [p.id, p.src, p.duration]);
 
-  const audioRef = React.useRef<HTMLAudioElement | null>(null);
   // Expose the <audio> element globally so a click in StreamPicker can call play()
   React.useEffect(() => {
     (window as any).__abAudioEl = audioRef.current || null;
@@ -144,7 +146,8 @@ export default function Player(p: Props) {
           <audio
             ref={audioRef}
             src={p.src}
-            crossOrigin="anonymous" playsInline playsInline
+            crossOrigin="anonymous" 
+            playsInline
             preload="metadata"
             onLoadedMetadata={(e) => {
               const a = e.currentTarget as HTMLAudioElement;

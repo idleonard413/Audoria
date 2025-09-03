@@ -1,7 +1,10 @@
-
 import { authHeaders } from "../auth/store";
 
-const ADDON_BASE = import.meta.env.VITE_ADDON_URL || "http://localhost:7000";
+// Work with or without Vite's env typings:
+const ADDON_BASE =
+  ((import.meta as any)?.env?.VITE_ADDON_URL as string) ||
+  (window as any).__ADDON_BASE ||
+  "http://localhost:7000";
 
 export async function saveProgress(p: {
   item_id: string;
