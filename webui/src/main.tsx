@@ -35,7 +35,10 @@ function App() {
   const [results, setResults] = React.useState<any[]>([]);
 
   // stream picker state
-  const [pickerOpen, setPickerOpen] = React.useState(false);
+  
+  const [user, setUser] = React.useState<any>(null);
+  React.useEffect(()=>{ auth.me(ADDON_BASE).then(setUser); }, []);
+const [pickerOpen, setPickerOpen] = React.useState(false);
   const [pickerMeta, setPickerMeta] = React.useState<{ id: string; title?: string; author?: string; cover?: string } | null>(null);
   const [pickerStreams, setPickerStreams] = React.useState<StreamItem[]>([]);
 
@@ -53,7 +56,8 @@ function App() {
       } finally { if (!stop) setSearching(false); }
     };
     const t = setTimeout(run, 300);
-    return () => { stop = true; clearTimeout(t); };
+    if (!user) { return <Login addonBase={ADDON_BASE} onAuthed={()=>auth.me(ADDON_BASE).then(setUser)} />; }
+  return () => { stop = true; clearTimeout(t); };
   }, [query]);
 
   // Open the stream picker for a given id

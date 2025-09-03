@@ -256,3 +256,19 @@ footer.player{
 @media (max-width: 1280px){ .row-grid{ grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); } }
 @media (max-width: 900px){ .row-grid{ grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); } }
 @media (max-width: 600px){ .row-grid{ grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+
+/* login */
+.login-wrap{ min-height: 70vh; display:grid; place-items:center; }
+.login-card{
+  width: 360px; display:grid; gap:10px; padding:24px; border:1px solid rgba(255,255,255,.08);
+  border-radius: 12px; background: rgba(15,17,24,.6); backdrop-filter: blur(10px);
+}
+.login-card input{
+  background: rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.1); border-radius:8px; padding:10px; color:#fff;
+}
+.login-card button{
+  background: linear-gradient(90deg, var(--primary-400), var(--accent-500));
+  border: 0; color:#0b0d13; font-weight:800; border-radius:10px; padding:10px; cursor:pointer;
+}
+.login-card .err{ color:#ffb3b3; font-size:13px; }

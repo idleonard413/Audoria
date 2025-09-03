@@ -6,6 +6,13 @@ const { URL: NodeURL } = require("url");
 
 const app = express();
 app.use(cors());
+app.use(bodyParser.json());
+
+const bodyParser = require("body-parser");
+const Database = require("better-sqlite3");
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+
 
 // ------------------------- Config -------------------------
 const HOST = process.env.HOST || "0.0.0.0"; // set HOST=0.0.0.0 to expose on LAN
@@ -101,6 +108,67 @@ function passThroughHeaders(originHeaders, res) {
   // Be permissive for browser consumption
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Timing-Allow-Origin", "*");
+
+// ----- Safe JSON fetch with timeout; never throws -----
+async function safeFetchJson(url, { timeoutMs = 2500, headers = {} } = {}) {
+  try {
+    const ac = new AbortController();
+    const t = setTimeout(() => ac.abort(), timeoutMs);
+    const res = await fetch(url, { headers, signal: ac.signal, redirect: "follow" });
+    clearTimeout(t);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null; // swallow network errors
+  }
+}
+
+// --- Database init ---
+const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-me";
+const DB_PATH = process.env.DB_PATH || "./audoria.sqlite";
+const db = new Database(DB_PATH);
+db.pragma("journal_mode = WAL");
+
+db.prepare(`
+  CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL UNIQUE,
+    pass_hash TEXT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT (datetime('now'))
+  )
+`).run();
+
+db.prepare(`
+  CREATE TABLE IF NOT EXISTS progress (
+    user_id INTEGER NOT NULL,
+    item_id TEXT NOT NULL,
+    position_sec INTEGER NOT NULL DEFAULT 0,
+    duration_sec INTEGER,
+    title TEXT,
+    author TEXT,
+    poster TEXT,
+    src TEXT,
+    updated_at DATETIME NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, item_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  )
+`).run();
+
+function createToken(user) {
+  return jwt.sign({ uid: user.id, email: user.email }, JWT_SECRET, { expiresIn: "30d" });
+}
+function authRequired(req, res, next) {
+  const h = req.headers.authorization || "";
+  const m = h.match(/^Bearer\s+(.+)$/i);
+  if (!m) return res.status(401).json({ error: "missing token" });
+  try {
+    const payload = jwt.verify(m[1], JWT_SECRET);
+    req.user = { id: payload.uid, email: payload.email };
+    next();
+  } catch {
+    res.status(401).json({ error: "invalid token" });
+  }
+}
 }
 
 // CORS preflight
@@ -171,9 +239,11 @@ app.get("/img", async (req, res) => {
 // ----------------- Open Library (covers/desc) --------------
 const OL_DISABLED = process.env.OL_DISABLED === "1";
 
+
+const OL_DISABLED = process.env.OL_DISABLED === "1";
+
 async function olSearch(title, author) {
   if (OL_DISABLED) return null;
-
   const url = new URL("https://openlibrary.org/search.json");
   if (title) url.searchParams.set("title", title);
   if (author) url.searchParams.set("author", author);
@@ -181,11 +251,9 @@ async function olSearch(title, author) {
 
   const data = await safeFetchJson(url.toString(), { timeoutMs: 2500 });
   if (!data) return null;
-
   const doc = (data.docs || [])[0];
   if (!doc) return null;
 
-  // best-effort cover
   let cover = null;
   if (doc.cover_i) {
     cover = `https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg`;
@@ -195,6 +263,24 @@ async function olSearch(title, author) {
     const olid = doc.key.replace("/works/", "");
     cover = `https://covers.openlibrary.org/b/olid/${olid}-L.jpg`;
   }
+
+  let description = "";
+  if (doc.key && doc.key.startsWith("/works/")) {
+    const work = await safeFetchJson(`https://openlibrary.org${doc.key}.json`, { timeoutMs: 2500 });
+    if (work) {
+      if (typeof work.description === "string") description = work.description;
+      else if (typeof work.description?.value === "string") description = work.description.value;
+    }
+  }
+
+  return {
+    title: doc.title,
+    author: (doc.author_name && doc.author_name[0]) || author || "",
+    cover,
+    description: description || "",
+    year: doc.first_publish_year || null,
+  };
+}
 
   // optional description from Work JSON — also safe
   let description = "";
@@ -780,6 +866,94 @@ app.get("/librivox/rss.json", async (req, res) => {
 // Health
 app.get("/", (_req, res) => res.send("Audiobook add-on (LibriVox + AudioAZ + RSS) running. See /manifest.json"));
 
+
+// --- Auth routes ---
+app.post("/auth/register", (req, res) => {
+  const { email, password } = req.body || {};
+  if (!email || !password) return res.status(400).json({ error: "email and password required" });
+  const hash = bcrypt.hashSync(password, 10);
+  try {
+    const info = db.prepare("INSERT INTO users (email, pass_hash) VALUES (?, ?)").run(email, hash);
+    const user = { id: info.lastInsertRowid, email };
+    const token = createToken(user);
+    res.json({ token, user: { id: user.id, email: user.email } });
+  } catch (e) {
+    if (/UNIQUE/.test(String(e))) return res.status(409).json({ error: "email already registered" });
+    res.status(500).json({ error: "register failed" });
+  }
+});
+
+app.post("/auth/login", (req, res) => {
+  const { email, password } = req.body || {};
+  if (!email || !password) return res.status(400).json({ error: "email and password required" });
+  const row = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
+  if (!row) return res.status(401).json({ error: "invalid credentials" });
+  const ok = bcrypt.compareSync(password, row.pass_hash);
+  if (!ok) return res.status(401).json({ error: "invalid credentials" });
+  const token = createToken(row);
+  res.json({ token, user: { id: row.id, email: row.email } });
+});
+
+app.get("/me", authRequired, (req, res) => {
+  res.json({ user: { id: req.user.id, email: req.user.email } });
+});
+
+// --- Progress routes ---
+app.put("/progress", authRequired, (req, res) => {
+  const { item_id, position_sec, duration_sec, title, author, poster, src } = req.body || {};
+  if (!item_id || position_sec == null) return res.status(400).json({ error: "item_id and position_sec required" });
+
+  const stmt = db.prepare(`
+    INSERT INTO progress (user_id, item_id, position_sec, duration_sec, title, author, poster, src, updated_at)
+    VALUES (@user_id, @item_id, @position_sec, @duration_sec, @title, @author, @poster, @src, datetime('now'))
+    ON CONFLICT(user_id, item_id) DO UPDATE SET
+      position_sec=excluded.position_sec,
+      duration_sec=COALESCE(excluded.duration_sec, progress.duration_sec),
+      title=COALESCE(excluded.title, progress.title),
+      author=COALESCE(excluded.author, progress.author),
+      poster=COALESCE(excluded.poster, progress.poster),
+      src=COALESCE(excluded.src, progress.src),
+      updated_at=datetime('now')
+  `);
+
+  stmt.run({
+    user_id: req.user.id,
+    item_id,
+    position_sec: Math.max(0, Math.floor(position_sec)),
+    duration_sec: duration_sec != null ? Math.max(0, Math.floor(duration_sec)) : null,
+    title: title || null,
+    author: author || null,
+    poster: poster || null,
+    src: src || null,
+  });
+
+  res.json({ ok: true });
+});
+
+app.get("/continue", authRequired, (req, res) => {
+  const limit = Math.max(1, Math.min(50, parseInt(req.query.limit, 10) || 20));
+  const rows = db.prepare(\`
+    SELECT item_id, position_sec, duration_sec, title, author, poster, src, updated_at
+    FROM progress
+    WHERE user_id = ?
+    ORDER BY updated_at DESC
+    LIMIT ?
+  \`).all(req.user.id, limit);
+
+  res.json({
+    items: rows.map(r => ({
+      id: r.item_id,
+      title: r.title,
+      author: r.author,
+      poster: r.poster,
+      position_sec: r.position_sec,
+      duration_sec: r.duration_sec,
+      src: r.src,
+      updated_at: r.updated_at,
+      progressPct: r.duration_sec ? Math.min(100, Math.round(100 * r.position_sec / r.duration_sec)) : 0
+    }))
+  });
+});
 app.listen(PORT, HOST, () => {
   console.log(`Audiobook add-on listening on http://${HOST}:${PORT}`);
 });

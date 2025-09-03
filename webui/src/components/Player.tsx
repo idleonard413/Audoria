@@ -1,5 +1,6 @@
 // src/components/Player.tsx
 import React from "react";
+import { saveProgress } from "../lib/progress";
 
 type Chapter = { title: string; start: number };
 
@@ -16,6 +17,40 @@ type Props = {
 };
 
 export default function Player(p: Props) {
+  const PROG_INTERVAL = 5000;
+  React.useEffect(() => {
+    const a = audioRef.current;
+    if (!a || !p.id) return;
+    let timer;
+    const tick = () => {
+      const position = Math.floor(a.currentTime || 0);
+      const duration = Math.floor((p.duration ?? a.duration) || 0);
+      saveProgress({
+        item_id: p.id!,
+        position_sec: position,
+        duration_sec: duration || undefined,
+        title: p.title,
+        author: p.author,
+        poster: p.cover,
+        src: p.src
+      });
+    };
+    const onPlay = () => { tick(); timer = setInterval(tick, PROG_INTERVAL); };
+    const onPause = () => { tick(); if (timer) clearInterval(timer); };
+    const onSeeked = () => tick();
+    a.addEventListener("play", onPlay);
+    a.addEventListener("pause", onPause);
+    a.addEventListener("seeked", onSeeked);
+    window.addEventListener("beforeunload", tick);
+    return () => {
+      if (timer) clearInterval(timer);
+      window.removeEventListener("beforeunload", tick);
+      a.removeEventListener("play", onPlay);
+      a.removeEventListener("pause", onPause);
+      a.removeEventListener("seeked", onSeeked);
+    };
+  }, [p.id, p.src, p.duration]);
+
   const audioRef = React.useRef<HTMLAudioElement | null>(null);
   // Expose the <audio> element globally so a click in StreamPicker can call play()
   React.useEffect(() => {
@@ -109,7 +144,7 @@ export default function Player(p: Props) {
           <audio
             ref={audioRef}
             src={p.src}
-            crossOrigin="anonymous" playsInline
+            crossOrigin="anonymous" playsInline playsInline
             preload="metadata"
             onLoadedMetadata={(e) => {
               const a = e.currentTarget as HTMLAudioElement;

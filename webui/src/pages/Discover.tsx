@@ -1,4 +1,28 @@
 import React from "react";
+
+import { fetchContinue } from "../lib/progress";
+import AudiobookCard from "../components/AudiobookCard";
+
+function ContinueShelf({ onOpen }:{ onOpen: (id:string)=>void }){
+  const [items, setItems] = React.useState<Array<any>>([]);
+  React.useEffect(()=>{ fetchContinue(20).then(d=>setItems(d.items || [])); }, []);
+  if (!items.length) return null;
+  return (
+    <ContinueShelf onOpen={openItem} />
+
+    <section className="container">
+      <div className="row-head"><div className="row-title">Continue Listening</div></div>
+      <div className="row">
+        {items.map(it => (
+          <AudiobookCard key={it.id} title={it.title || "Untitled"} author={it.author || ""}
+            poster={it.poster || undefined} progressPct={it.progressPct || 0}
+            onClick={()=>onOpen(it.id)} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
 import { getCore } from "@/core";
 import { Row, SkeletonRow } from "@/components/Row";
 import AudiobookCard from "@/components/AudiobookCard";
@@ -12,12 +36,16 @@ export default function Discover({ onPlay }: { onPlay: (id: string) => void }) {
       const pop = await core.getCatalog("popular");
       if (ok) setPopular(pop);
     });
-    return () => { ok = false; };
+    return (
+    <ContinueShelf onOpen={openItem} />
+) => { ok = false; };
   }, []);
 
   const continueListening = popular?.slice(0, 10) || [];
 
   return (
+    <ContinueShelf onOpen={openItem} />
+
     <div>
       {/* Continue listening row */}
       <section>
