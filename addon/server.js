@@ -647,29 +647,62 @@ app.get("/stream/:type/:id.json", async (req, res) => {
   }
 });
 
-// Search (Open Library fast discovery)
+// Search (Open Library multi-result)
 app.get("/search.json", async (req, res) => {
   const q = (req.query.q || "").toString().trim();
+  const limit = Math.max(1, Math.min(10, parseInt(req.query.limit, 10) || 10));
   if (!q) return res.json({ metas: [] });
 
   try {
+    // If you like "title - author" format, keep this split; otherwise just use q as a whole
     const [titleGuess, authorGuess] = q.split(" - ").map((s) => s.trim());
-    const ol = await olSearch(titleGuess || q, authorGuess || "");
-    if (!ol) return res.json({ metas: [] });
 
-    const id = `audiobook:${slugify(`${ol.title}-${ol.author || ""}`)}`;
-    catalogIndex.set(id, { title: ol.title, author: ol.author });
+    const url = new URL("https://openlibrary.org/search.json");
+    if (titleGuess) url.searchParams.set("title", titleGuess);
+    if (authorGuess) url.searchParams.set("author", authorGuess);
+    if (!titleGuess && !authorGuess) url.searchParams.set("q", q);
+    url.searchParams.set("limit", String(limit));
 
-    res.json({
-      metas: [{
-        id, type: "other", name: ol.title, poster: ol.cover || null, description: ol.description || "",
-      }],
-    });
+    const data = await safeFetchJson(url.toString(), { timeoutMs: 4000 });
+    if (!data || !Array.isArray(data.docs)) return res.json({ metas: [] });
+
+    const base = `${req.protocol}://${req.get("host")}`;
+    const metas = [];
+    for (const doc of data.docs.slice(0, limit)) {
+      const title = doc.title || "Untitled";
+      const author = (doc.author_name && doc.author_name[0]) || "";
+      const id = `audiobook:${slugify(`${title}-${author}`)}`;
+
+      // cache minimal intent for meta/stream resolution later
+      catalogIndex.set(id, { title, author });
+
+      // Build best-effort cover and proxy it through /img
+      let cover = null;
+      if (doc.cover_i) cover = `https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg`;
+      else if (doc.isbn && doc.isbn.length) cover = `https://covers.openlibrary.org/b/ISBN/${doc.isbn[0]}-L.jpg`;
+      else if (doc.key) {
+        const olid = doc.key.replace("/works/", "");
+        cover = `https://covers.openlibrary.org/b/olid/${olid}-L.jpg`;
+      }
+      if (cover) cover = `${base}/img?u=${encodeURIComponent(cover)}`;
+
+      metas.push({
+        id,
+        type: "other",
+        name: title,
+        poster: cover,
+        description: "", // we can enrich in /meta via OL/LV later
+        author
+      });
+    }
+
+    res.json({ metas });
   } catch (e) {
     console.warn("search warn:", e?.message || e);
     res.json({ metas: [] });
   }
 });
+
 
 // AudioAZ debug
 app.get("/audioaz/resolve.json", async (req, res) => {

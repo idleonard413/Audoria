@@ -1,10 +1,6 @@
 import { authHeaders } from "../auth/store";
-
-// Work with or without Vite's env typings:
-const ADDON_BASE =
-  ((import.meta as any)?.env?.VITE_ADDON_URL as string) ||
-  (window as any).__ADDON_BASE ||
-  "http://localhost:7000";
+import { getAddonBase } from "../config";
+const ADDON_BASE = getAddonBase();
 
 export async function saveProgress(p: {
   item_id: string;
@@ -15,14 +11,12 @@ export async function saveProgress(p: {
   poster?: string;
   src?: string;
 }) {
-  try {
     await fetch(`${ADDON_BASE}/progress`, {
       method: "PUT",
       headers: authHeaders(),
       body: JSON.stringify(p)
-    });
-  } catch {}
-}
+    }).catch(() => {});
+  }
 
 export async function fetchContinue(limit = 20) {
   const r = await fetch(`${ADDON_BASE}/continue?limit=${limit}`, { headers: authHeaders() });

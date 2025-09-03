@@ -65,17 +65,19 @@ function App() {
     auth.me(ADDON_BASE).then(setUser);
   }, []);
 
-  // Debounced search
+  // Debounced search (pulls up to 10 from addon)
   React.useEffect(() => {
     let stop = false;
     const run = async () => {
       const q = query.trim();
       if (!q) { setResults([]); setSearching(false); return; }
       setSearching(true);
-      const core = await getCore();
       try {
-        const r = await core.search(q);
-        if (!stop) setResults(r);
+        const r = await fetch(`${ADDON_BASE}/search.json?q=${encodeURIComponent(q)}&limit=10`);
+        const j = await r.json();
+        if (!stop) setResults(Array.isArray(j?.metas) ? j.metas : []);
+      } catch {
+        if (!stop) setResults([]);
       } finally {
         if (!stop) setSearching(false);
       }
@@ -83,6 +85,7 @@ function App() {
     const t = setTimeout(run, 300);
     return () => { stop = true; clearTimeout(t); };
   }, [query]);
+
 
   // ---- Callbacks (no hooks inside) ----
   const handleAuthed = React.useCallback(() => {
@@ -141,7 +144,7 @@ function App() {
           {results.map((b: any) => (
             <AudiobookCard
               key={b.id}
-              title={b.title}
+              title={b.name || "Untitled"}
               author={b.author}
               poster={b.cover}
               durationSec={b.duration}
