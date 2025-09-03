@@ -10,18 +10,24 @@ import Player from "@/components/Player";
 import AudiobookCard from "@/components/AudiobookCard";
 import { getCore } from "@/core";
 import StreamPicker, { StreamItem } from "@/components/StreamPicker";
-import { Row, SkeletonRow } from "@/components/Row"; // if used by Discover/Search
 import Login from "./pages/Login";
 import { auth } from "./auth/store";
+import "./styles/app.css";
 
-const ADDON_BASE =
-  ((import.meta as any)?.env?.VITE_ADDON_URL as string) ||
-  (window as any).__ADDON_BASE ||
-  "http://localhost:7000";
+// -------- Runtime add-on base helper (no rebuild required) --------
+function getAddonBase(): string {
+  const ls = (() => {
+    try { return localStorage.getItem("ADDON_BASE") || ""; } catch { return ""; }
+  })();
+  const win = (window as any).__ADDON_BASE as string | undefined;
+  const env = ((import.meta as any)?.env?.VITE_ADDON_URL as string | undefined);
+  const guess = `http://${location.hostname}:7000`;
+  return (ls || win || env || guess).replace(/\/+$/, "");
+}
+const ADDON_BASE = getAddonBase();
+console.log("ADDON_BASE =", ADDON_BASE);
 
-// in main.tsx near the ADDON_BASE definition
-console.log('ADDON_BASE =', ((import.meta as any)?.env?.VITE_ADDON_URL), (window as any).__ADDON_BASE);
-
+// -------- Types --------
 type Tab = "discover" | "library" | "addons";
 type Chapter = { title: string; start: number };
 type CurrentTrack = {
@@ -36,6 +42,7 @@ type CurrentTrack = {
 };
 
 function App() {
+  // ✅ All hooks declared unconditionally and in the same order
   const [tab, setTab] = React.useState<Tab>("discover");
   const [current, setCurrent] = React.useState<CurrentTrack | null>(null);
 
@@ -44,14 +51,19 @@ function App() {
   const [searching, setSearching] = React.useState(false);
   const [results, setResults] = React.useState<any[]>([]);
 
-  // stream picker state
-  
+  // auth state
   const [user, setUser] = React.useState<any>(null);
-  React.useEffect(()=>{ auth.me(ADDON_BASE).then(setUser); }, []);
-  if (!user) { return <Login addonBase={ADDON_BASE} onAuthed={()=>auth.me(ADDON_BASE).then(setUser)} />; }
-const [pickerOpen, setPickerOpen] = React.useState(false);
+
+  // stream picker state
+  const [pickerOpen, setPickerOpen] = React.useState(false);
   const [pickerMeta, setPickerMeta] = React.useState<{ id: string; title?: string; author?: string; cover?: string } | null>(null);
   const [pickerStreams, setPickerStreams] = React.useState<StreamItem[]>([]);
+
+  // ---- Effects ----
+  // Load current user (JWT) once
+  React.useEffect(() => {
+    auth.me(ADDON_BASE).then(setUser);
+  }, []);
 
   // Debounced search
   React.useEffect(() => {
@@ -64,25 +76,29 @@ const [pickerOpen, setPickerOpen] = React.useState(false);
       try {
         const r = await core.search(q);
         if (!stop) setResults(r);
-      } finally { if (!stop) setSearching(false); }
+      } finally {
+        if (!stop) setSearching(false);
+      }
     };
     const t = setTimeout(run, 300);
-  return () => { stop = true; clearTimeout(t); };
+    return () => { stop = true; clearTimeout(t); };
   }, [query]);
 
-  // Open the stream picker for a given id
-  const openPicker = async (id: string) => {
+  // ---- Callbacks (no hooks inside) ----
+  const handleAuthed = React.useCallback(() => {
+    auth.me(ADDON_BASE).then(setUser);
+  }, []);
+
+  const openPicker = React.useCallback(async (id: string) => {
     const core = await getCore();
     const meta = await core.getMeta(id);
     const streams = await core.getStreams(id);
     setPickerMeta({ id, title: meta.title, author: meta.author, cover: meta.cover });
     setPickerStreams(streams);
     setPickerOpen(true);
-  };
+  }, []);
 
-  // User chose a stream in the picker
-  
-  const chooseStream = (s: StreamItem) => {
+  const chooseStream = React.useCallback((s: StreamItem) => {
     if (!pickerMeta) return;
     // Update UI state (title/cover/duration)
     setCurrent({
@@ -111,25 +127,25 @@ const [pickerOpen, setPickerOpen] = React.useState(false);
     }
 
     setPickerOpen(false); // close picker
-  };
+  }, [pickerMeta]);
 
-
+  // ---- Small inline view for search results ----
   const SearchView = () => (
     <div>
       <div className="row-head">
         <div className="row-title">Search</div>
-        <div className="muted">{searching ? "Searching…" : `${results.length} result${results.length===1?"":"s"}`}</div>
+        <div className="muted">{searching ? "Searching…" : `${results.length} result${results.length === 1 ? "" : "s"}`}</div>
       </div>
       <div className="row-wrap">
         <div className="row">
-          {results.map((b:any)=>(
+          {results.map((b: any) => (
             <AudiobookCard
               key={b.id}
               title={b.title}
               author={b.author}
               poster={b.cover}
               durationSec={b.duration}
-              onClick={()=>openPicker(b.id)}
+              onClick={() => openPicker(b.id)}
             />
           ))}
         </div>
@@ -137,19 +153,22 @@ const [pickerOpen, setPickerOpen] = React.useState(false);
     </div>
   );
 
-  return (
+  // ---- Compute body (no hooks below this line) ----
+  const body = !user ? (
+    <Login addonBase={ADDON_BASE} onAuthed={handleAuthed} />
+  ) : (
     <div className="app">
       <Sidebar />
       <TopBar query={query} setQuery={setQuery} />
+
       <main className="content">
         {query.trim()
-          ? <SearchView/>
-          : tab === "discover" ? <Discover openItem={openPicker}/>
-          : tab === "library"  ? <Library/>
-          : <Addons/>}
+          ? <SearchView />
+          : tab === "discover" ? <Discover openItem={openPicker} />
+          : tab === "library"  ? <Library />
+          : <Addons />}
       </main>
 
-      {/* Stream Picker */}
       <StreamPicker
         open={pickerOpen}
         onClose={() => setPickerOpen(false)}
@@ -161,6 +180,7 @@ const [pickerOpen, setPickerOpen] = React.useState(false);
       />
 
       <Player
+        id={current?.id}
         title={current?.title}
         author={current?.author}
         src={current?.src || ""}
@@ -170,6 +190,8 @@ const [pickerOpen, setPickerOpen] = React.useState(false);
       />
     </div>
   );
+
+  return <>{body}</>;
 }
 
 ReactDOM.createRoot(document.getElementById("root")!).render(<App />);
