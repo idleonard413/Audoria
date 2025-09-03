@@ -239,9 +239,6 @@ app.get("/img", async (req, res) => {
 // ----------------- Open Library (covers/desc) --------------
 const OL_DISABLED = process.env.OL_DISABLED === "1";
 
-
-const OL_DISABLED = process.env.OL_DISABLED === "1";
-
 async function olSearch(title, author) {
   if (OL_DISABLED) return null;
   const url = new URL("https://openlibrary.org/search.json");
