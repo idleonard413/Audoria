@@ -304,6 +304,48 @@ async function lvFetchById(lvId) {
   };
 }
 
+// Try to find a LibriVox record by title/author if we don't have lvId yet
+async function lvFindId(title, author) {
+  const u = new URL(LV_BASE);
+  u.searchParams.set("format", "json");
+  u.searchParams.set("extended", "1");
+  if (title) u.searchParams.set("title", title);
+  if (author) u.searchParams.set("author", author);
+  u.searchParams.set("limit", "5");
+
+  const data = await safeFetchJson(u.toString(), { timeoutMs: 5000 });
+  if (!data || !Array.isArray(data.books) || !data.books.length) return null;
+
+  // pick the best match (normalize; prefer exact-ish title + author)
+  const norm = (s) => String(s || "").toLowerCase().replace(/\s+/g, " ").trim();
+  const nt = norm(title), na = norm(author);
+  let best = null, scoreBest = -1;
+
+  for (const b of data.books) {
+    const bt = norm(b.title);
+    const ba = norm((b.authors && b.authors[0])
+      ? `${b.authors[0].first_name || ""} ${b.authors[0].last_name || ""}` : "");
+    let score = 0;
+    if (nt && bt.includes(nt)) score += 2;
+    if (nt && bt === nt) score += 3;
+    if (na && ba.includes(na)) score += 1;
+    if (na && ba === na) score += 2;
+    if (!best || score > scoreBest) { best = b; scoreBest = score; }
+  }
+
+  if (!best) best = data.books[0];
+  return {
+    lvId: best.id,
+    title: best.title,
+    author: (best.authors && best.authors[0])
+      ? `${best.authors[0].first_name || ""} ${best.authors[0].last_name || ""}`.trim() : "",
+    url_iarchive: best.url_iarchive,
+    url_librivox: best.url_librivox,
+    rss: best.url_rss || null
+  };
+}
+
+
 // ---------------- LibriVox RSS helpers --------------------
 async function fetchText(u) {
   try {
@@ -460,6 +502,17 @@ async function resolveAudioAz(url) {
 
 // -------------- Resolve audiobook (LV + OL + RSS) --------
 async function resolveAudiobook({ id, title, author, lvId, expandRss }) {
+  if (!lvId && (title || author)) {
+    try {
+      const found = await lvFindId(title, author);
+      if (found?.lvId) {
+        lvId = found.lvId;
+        // cache for future calls
+        if (id) catalogIndex.set(id, { title: found.title || title, author: found.author || author, lvId });
+      }
+    } catch {}
+  }
+
   const lv = await lvFetchById(lvId);
   let ol = null;
   try { ol = await olSearch(lv?.title || title, lv?.author || author); } catch {}
@@ -579,6 +632,16 @@ app.get("/meta/:type/:id.json", async (req, res) => {
     intent = { title: guessTitle };
   }
 
+  if (!intent.lvId && (intent.title || intent.author)) {
+    try {
+      const found = await lvFindId(intent.title, intent.author);
+      if (found?.lvId) {
+        intent.lvId = found.lvId;
+        catalogIndex.set(id, { title: found.title || intent.title, author: found.author || intent.author, lvId: found.lvId });
+      }
+    } catch {}
+  }
+
   try {
     const { meta } = await resolveAudiobook({
       id,
@@ -609,6 +672,16 @@ app.get("/stream/:type/:id.json", async (req, res) => {
     const slug = id.replace(/^audiobook:/, "");
     const guessTitle = slug.replace(/-/g, " ");
     intent = { title: guessTitle };
+  }
+
+  if (!intent.lvId && (intent.title || intent.author)) {
+    try {
+      const found = await lvFindId(intent.title, intent.author);
+      if (found?.lvId) {
+        intent.lvId = found.lvId;
+        catalogIndex.set(id, { title: found.title || intent.title, author: found.author || intent.author, lvId: found.lvId });
+      }
+    } catch {}
   }
 
   try {
