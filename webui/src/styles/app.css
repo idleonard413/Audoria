@@ -25,20 +25,11 @@
   /* type scale */
   --title-size: clamp(14px, 1.4vw, 16px);
   --meta-size: clamp(11px, 1.0vw, 13px);
-
-  --progress-offset: 80px;
 }
 
-/* base */
+/* ---------- Base ---------- */
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; }
-
-main.content {
-  overflow: visible;      /* not hidden */
-  min-height: 0;          /* avoid flex overflow bugs */
-}
-
-
 body{
   margin: 0;
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
@@ -48,31 +39,35 @@ body{
     linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,0));
 }
 
-/* app frame */
+/* ---------- App frame ---------- */
 .app {
   display: grid;
-  grid-template-columns: 240px 1fr;  /* sidebar + content */
+  grid-template-columns: 72px 1fr;           /* compact rail + content */
   min-height: 100vh;
 }
 @media (max-width: 900px) {
   .app { grid-template-columns: 1fr; }
 }
 
-
 /* areas */
-.sidebar{ grid-area: sidebar; }
-.topbar { grid-area: topbar; position: sticky; top: 0; z-index: 10; }
+.sidebar { grid-area: sidebar; }
+.topbar  { grid-area: topbar; position: sticky; top: 0; z-index: 10; }
 .content{
   grid-area: content;
-  padding: 24px clamp(16px, 3vw, 28px) 108px; /* bottom room for player */
+  display: flex;
+  justify-content: center;                   /* center the container */
+  padding: 24px clamp(16px, 3vw, 28px) 108px; /* room for player */
+  overflow: visible;
+  min-height: 0;
 }
-.container {
+.container{
   width: 100%;
   max-width: var(--content-max);
   margin: 0 auto;
   padding: 0 16px;
 }
-/* sidebar / rail */
+
+/* ---------- Sidebar / Rail ---------- */
 .rail{
   height: 100%;
   padding: 10px 8px;
@@ -94,7 +89,7 @@ body{
   outline: 1px solid rgba(255,255,255,.06);
 }
 
-/* topbar */
+/* ---------- Topbar ---------- */
 .topbar-wrap{
   display: flex; align-items: center; justify-content: center; gap: 16px; padding: 12px 20px;
   backdrop-filter: saturate(140%) blur(8px);
@@ -119,7 +114,7 @@ body{
 }
 .action-btn:hover{ background: rgba(255,255,255,.1); }
 
-/* section headers */
+/* ---------- Section headers ---------- */
 .row-head{
   display: flex; align-items: baseline; justify-content: space-between;
   margin: 28px 6px 12px;
@@ -128,51 +123,51 @@ body{
 .see-all{ color: var(--ink-muted); font-size: 12px; cursor: pointer; }
 .see-all:hover{ color: #fff; text-decoration: underline; }
 
-/* rows (horizontal scrollers) */
+/* ---------- Grid rows ---------- */
 .row-wrap{ position: relative; }
-.row {
+.row{
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: var(--row-gap);
-  justify-content: start;      /* ✅ keep items left-aligned */
+  align-items: start;
+  justify-content: start;                    /* keep items left-aligned */
 }
-.row::-webkit-scrollbar{ height: 10px; }
-.row::-webkit-scrollbar-thumb{ background: rgba(255,255,255,.08); border-radius: 999px; }
-.row-btn{
-  position: absolute; top: 50%; transform: translateY(-50%); z-index: 2;
-  width: 36px; height: 36px; border-radius: 999px; display: grid; place-items: center; cursor: pointer;
-  background: rgba(255,255,255,.08);
-  border: 1px solid rgba(255,255,255,.15);
-  backdrop-filter: blur(6px);
-}
-.row-btn:hover{ background: rgba(255,255,255,.14); }
-.row-btn.left{ left: 4px; }
-.row-btn.right{ right: 4px; }
 
-/* card */
-.ab-card {
+/* ---------- Cards ---------- */
+.ab-card{
   display: flex;
   flex-direction: column;
   user-select: none;
   cursor: pointer;
-  /* kill surprise transforms from old hover effects */
-  transform: none !important;
+  transform: none !important;                /* avoid accidental scales */
   transition: box-shadow 120ms ease, transform 120ms ease;
 }
-.ab-art {
+.ab-card:hover{
+  box-shadow: 0 8px 24px rgba(14, 159, 110, 0.25); /* green glow */
+}
+.ab-card:active{
+  transform: translateY(-1px);
+  box-shadow:
+    0 0 0 3px rgba(251,146,60,.55),          /* orange outline on click */
+    0 4px 12px rgba(0,0,0,.55);
+  filter: brightness(1.01);
+}
+
+/* square artwork */
+.ab-art{
   position: relative;
-  aspect-ratio: 1 / 1.6;
+  aspect-ratio: 1 / 1;                       /* square cover */
   width: 100%;
   overflow: hidden;
 }
-.ab-art img {
+.ab-art img{
   display: block;
   width: 100%;
   height: 100%;
-  object-fit: cover;    /* fill square without distortion */
+  object-fit: cover;
   object-position: center;
 }
-.ab-fallback {
+.ab-fallback{
   width: 100%;
   height: 100%;
   background: #0e0f14;
@@ -181,40 +176,29 @@ body{
   color: #8a8f9c;
   font-size: 12px;
 }
-.ab-card:hover {
-  box-shadow: 0 8px 24px rgba(14, 159, 110, 0.25);
-}
 
-.ab-card:active {
-  transform: translateY(-1px);
-  box-shadow:
-    0 0 0 3px rgba(251,146,60,.55),          /* orange outline on click */
-    0 4px 12px rgba(0,0,0,.55);
-  filter: brightness(1.01);
-}
-
-.ab-thumb{
-  width: 100%; height: 210px; background: #1a1f2b; display: grid; place-items: center;
-}
-.ab-thumb img{ width: 100%; height: 100%; object-fit: cover; display: block; }
 .ab-overlay{
   position: absolute; inset: 0; display: grid; align-content: end; padding: 8px;
   background: linear-gradient(180deg, rgba(0,0,0,0), rgba(0,0,0,.35) 55%, rgba(0,0,0,.55));
   opacity: 0; transition: opacity .18s ease;
 }
 
+/* meta */
 .ab-meta { padding: 8px 2px 0; }
-.ab-title {
+.ab-title{
   font-weight: 600;
   line-height: 1.2;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  font-size: var(--title-size);
 }
-.ab-author {
+.ab-author{
   color: #7a7a7a;
-  font-size: 0.9rem;
+  font-size: var(--meta-size);
 }
+
+/* badges (optional) */
 .ab-badges{ display: flex; gap: 6px; margin-top: 6px; }
 .badge{
   font-size: 10px; opacity: .9;
@@ -225,24 +209,25 @@ body{
 
 /* progress strip on card */
 .progress{
-  position:absolute; left:10px; right:10px; bottom:10px; height:6px;
-  border-radius:8px; background:rgba(255,255,255,.14); overflow:hidden;
+  position: absolute; left: 10px; right: 10px; bottom: 10px; height: 6px;
+  border-radius: 8px; background: rgba(255,255,255,.14); overflow: hidden;
 }
 .progress > span{
-  display:block; height:100%;
+  display: block; height: 100%;
   background: linear-gradient(90deg, var(--primary-400), var(--primary-600));
 }
 
-/* skeleton */
+/* ---------- Skeleton ---------- */
 .skeleton{
-  width: 180px; height: 210px; border-radius: var(--card-radius);
+  width: 180px; height: 180px;               /* square placeholder */
+  border-radius: var(--card-radius);
   background: linear-gradient(90deg,#1a1d28,#222634,#1a1d28);
   background-size: 200% 100%;
   animation: shimmer 1.2s infinite;
 }
 @keyframes shimmer{ 0%{background-position:-100% 0} 100%{background-position:100% 0} }
 
-/* player */
+/* ---------- Player ---------- */
 footer.player{
   position: fixed; left: 72px; right: 0; bottom: 0; height: 84px;
   background: rgba(14,17,23,.9); border-top: 1px solid var(--line);
@@ -250,7 +235,7 @@ footer.player{
 }
 @media (max-width: 900px){ footer.player{ left: 0; } }
 
-/* responsive grid option (if you move to grid shelves later) */
+/* ---------- Alt responsive grid (if needed) ---------- */
 .row-grid{
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(164px, 1fr));
@@ -260,8 +245,7 @@ footer.player{
 @media (max-width: 900px){ .row-grid{ grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); } }
 @media (max-width: 600px){ .row-grid{ grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
-
-/* login */
+/* ---------- Login ---------- */
 .login-wrap{ min-height: 70vh; display:grid; place-items:center; }
 .login-card{
   width: 360px; display:grid; gap:10px; padding:24px; border:1px solid rgba(255,255,255,.08);
