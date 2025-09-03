@@ -32,6 +32,13 @@
 /* base */
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; }
+
+main.content {
+  overflow: visible;      /* not hidden */
+  min-height: 0;          /* avoid flex overflow bugs */
+}
+
+
 body{
   margin: 0;
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
@@ -42,13 +49,15 @@ body{
 }
 
 /* app frame */
-.app{
+.app {
   display: grid;
-  grid-template-columns: 72px 1fr; /* sidebar + content */
-  grid-template-rows: 64px 1fr;
-  grid-template-areas: "sidebar topbar" "sidebar content";
+  grid-template-columns: 240px 1fr;  /* sidebar + content */
   min-height: 100vh;
 }
+@media (max-width: 900px) {
+  .app { grid-template-columns: 1fr; }
+}
+
 
 /* areas */
 .sidebar{ grid-area: sidebar; }
@@ -57,8 +66,11 @@ body{
   grid-area: content;
   padding: 24px clamp(16px, 3vw, 28px) 108px; /* bottom room for player */
 }
-.container{ margin-inline: auto; width: min(100%, var(--content-max)); }
-
+.container {
+  max-width: 1200px; /* or 1280 */
+  margin: 0 auto;
+  padding: 0 16px;
+}
 /* sidebar / rail */
 .rail{
   height: 100%;
@@ -117,14 +129,11 @@ body{
 
 /* rows (horizontal scrollers) */
 .row-wrap{ position: relative; }
-.row{
+.row {
   display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: 180px;
-  gap: var(--row-gap);
-  overflow-x: auto;
-  padding: 4px 36px 12px;
-  scroll-snap-type: x mandatory;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); /* 160–220 is a sweet spot */
+  gap: 16px;
+  align-items: start;
 }
 .row::-webkit-scrollbar{ height: 10px; }
 .row::-webkit-scrollbar-thumb{ background: rgba(255,255,255,.08); border-radius: 999px; }
@@ -143,20 +152,24 @@ body{
 .ab-card {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  width: 180px;                 /* fixed card width */
+  user-select: none;
   cursor: pointer;
-  transition: transform .18s ease, box-shadow .18s ease, filter .18s ease;
-}
+  /* kill surprise transforms from old hover effects */
+  transform: none !important;
+  transition: box-shadow 120ms ease, transform 120ms ease;
+}}
 .ab-art {
-  aspect-ratio: 1 / 1;           /* uniform size */
-  border-radius: 0;
+  aspect-ratio: 1 / 1.6;
+  width: 100%;
   overflow: hidden;
-  background: #1a1f2b;
-  box-shadow: var(--card-shadow);
-  position: relative;
 }
-.ab-art img,
+.ab-art img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;    /* fill square without distortion */
+  object-position: center;
+},
 .ab-fallback {
   width: 100%;
   height: 100%;
@@ -165,11 +178,7 @@ body{
   display: block;
 }
 .ab-card:hover {
-  transform: translateY(-4px);
-  box-shadow:
-    0 0 0 3px rgba(34,197,94,.45),           /* green outline */
-    0 6px 22px rgba(0,0,0,.5);
-  filter: brightness(1.03);
+  box-shadow: 0 8px 24px rgba(14, 159, 110, 0.25);
 }
 
 .ab-card:active {
@@ -190,27 +199,17 @@ body{
   opacity: 0; transition: opacity .18s ease;
 }
 
-.ab-meta {
-  display: grid;
-  gap: 2px;
-}
-
+.ab-meta { padding: 8px 2px 0; }
 .ab-title {
-  font-size: var(--title-size);
-  font-weight: 700;
-  line-height: 1.25;
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;          /* clamp to 2 lines */
-  -webkit-box-orient: vertical;
-}
-
-.ab-author {
-  font-size: var(--meta-size);
-  color: var(--ink-muted);
+  font-weight: 600;
+  line-height: 1.2;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.ab-author {
+  color: #7a7a7a;
+  font-size: 0.9rem;
 }
 .ab-badges{ display: flex; gap: 6px; margin-top: 6px; }
 .badge{
