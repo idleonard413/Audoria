@@ -241,6 +241,7 @@ const OL_DISABLED = process.env.OL_DISABLED === "1";
 
 async function olSearch(title, author) {
   if (OL_DISABLED) return null;
+
   const url = new URL("https://openlibrary.org/search.json");
   if (title) url.searchParams.set("title", title);
   if (author) url.searchParams.set("author", author);
@@ -248,9 +249,11 @@ async function olSearch(title, author) {
 
   const data = await safeFetchJson(url.toString(), { timeoutMs: 2500 });
   if (!data) return null;
+
   const doc = (data.docs || [])[0];
   if (!doc) return null;
 
+  // best-effort cover
   let cover = null;
   if (doc.cover_i) {
     cover = `https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg`;
@@ -260,24 +263,6 @@ async function olSearch(title, author) {
     const olid = doc.key.replace("/works/", "");
     cover = `https://covers.openlibrary.org/b/olid/${olid}-L.jpg`;
   }
-
-  let description = "";
-  if (doc.key && doc.key.startsWith("/works/")) {
-    const work = await safeFetchJson(`https://openlibrary.org${doc.key}.json`, { timeoutMs: 2500 });
-    if (work) {
-      if (typeof work.description === "string") description = work.description;
-      else if (typeof work.description?.value === "string") description = work.description.value;
-    }
-  }
-
-  return {
-    title: doc.title,
-    author: (doc.author_name && doc.author_name[0]) || author || "",
-    cover,
-    description: description || "",
-    year: doc.first_publish_year || null,
-  };
-}
 
   // optional description from Work JSON — also safe
   let description = "";
