@@ -6,6 +6,11 @@
     <title>Audoria</title>
     <link rel="stylesheet" href="/src/styles/app.css" />
   </head>
+  <script>
+    // Optional runtime override without rebuild; localStorage wins if set
+    window.__ADDON_BASE = window.__ADDON_BASE || 'http://192.168.2.175:7000';
+  </script>
+
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
