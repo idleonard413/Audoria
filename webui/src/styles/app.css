@@ -67,7 +67,8 @@ body{
   padding: 24px clamp(16px, 3vw, 28px) 108px; /* bottom room for player */
 }
 .container {
-  max-width: 1200px; /* or 1280 */
+  width: 100%;
+  max-width: var(--content-max);
   margin: 0 auto;
   padding: 0 16px;
 }
@@ -131,9 +132,9 @@ body{
 .row-wrap{ position: relative; }
 .row {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); /* 160–220 is a sweet spot */
-  gap: 16px;
-  align-items: start;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: var(--row-gap);
+  justify-content: start;      /* ✅ keep items left-aligned */
 }
 .row::-webkit-scrollbar{ height: 10px; }
 .row::-webkit-scrollbar-thumb{ background: rgba(255,255,255,.08); border-radius: 999px; }
