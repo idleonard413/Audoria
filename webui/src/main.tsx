@@ -12,8 +12,12 @@ import StreamPicker, { StreamItem } from "@/components/StreamPicker";
 import Login from "./pages/Login";
 import { auth } from "./auth/store";
 import ErrorBoundary from "./components/ErrorBoundary";
-import './styles/tailwind.css'
 
+// Tailwind v4 entry + tiny base
+import './styles/tailwind.css'
+import './styles/base.css'
+
+// -------- helpers --------
 function uniqById<T extends { id: string }>(arr: T[]): T[] {
   const seen = new Set<string>();
   const out: T[] = [];
@@ -25,7 +29,7 @@ function uniqById<T extends { id: string }>(arr: T[]): T[] {
   return out;
 }
 
-// -------- Runtime add-on base helper (no rebuild required) --------
+// Runtime add-on base helper (no rebuild required)
 function getAddonBase(): string {
   const ls = (() => {
     try { return localStorage.getItem("ADDON_BASE") || ""; } catch { return ""; }
@@ -38,7 +42,7 @@ function getAddonBase(): string {
 const ADDON_BASE = getAddonBase();
 console.log("ADDON_BASE =", ADDON_BASE);
 
-// -------- Types --------
+// -------- types --------
 type Tab = "discover" | "library" | "addons";
 type Chapter = { title: string; start: number };
 type CurrentTrack = {
@@ -53,7 +57,7 @@ type CurrentTrack = {
 };
 
 function App() {
-  // ✅ All hooks declared unconditionally and in the same order
+  // hooks (stable order)
   const [tab, setTab] = React.useState<Tab>("discover");
   const [current, setCurrent] = React.useState<CurrentTrack | null>(null);
 
@@ -70,14 +74,12 @@ function App() {
   const [pickerMeta, setPickerMeta] = React.useState<{ id: string; title?: string; author?: string; cover?: string } | null>(null);
   const [pickerStreams, setPickerStreams] = React.useState<StreamItem[]>([]);
 
-
-  // ---- Effects ----
-  // Load current user (JWT) once
+  // load current user (JWT) once
   React.useEffect(() => {
     auth.me(ADDON_BASE).then(setUser);
   }, []);
 
-  // Debounced search (pulls up to 10 from addon)
+  // debounced search (pulls up to 10 from addon)
   React.useEffect(() => {
     let stop = false;
     const run = async () => {
@@ -98,34 +100,32 @@ function App() {
     return () => { stop = true; clearTimeout(t); };
   }, [query]);
 
-
-  // ---- Callbacks (no hooks inside) ----
+  // callbacks
   const handleAuthed = React.useCallback(() => {
     auth.me(ADDON_BASE).then(setUser);
   }, []);
 
+  const openPicker = React.useCallback(async (id: string) => {
+    // 1) Fetch metadata from addon
+    const metaRes = await fetch(`${ADDON_BASE}/meta/other/${encodeURIComponent(id)}.json`);
+    const metaJson = await metaRes.json();
+    const m = metaJson?.meta || {};
 
-const openPicker = React.useCallback(async (id: string) => {
-  // 1) Fetch metadata from addon
-  const metaRes = await fetch(`${ADDON_BASE}/meta/other/${encodeURIComponent(id)}.json`);
-  const metaJson = await metaRes.json();
-  const m = metaJson?.meta || {};
+    // 2) Fetch streams from addon
+    const streamRes = await fetch(`${ADDON_BASE}/stream/other/${encodeURIComponent(id)}.json`);
+    const sJson = await streamRes.json();
+    const streams = Array.isArray(sJson?.streams) ? sJson.streams : [];
 
-  // 2) Fetch streams from addon
-  const streamRes = await fetch(`${ADDON_BASE}/stream/other/${encodeURIComponent(id)}.json`);
-  const sJson = await streamRes.json();
-  const streams = Array.isArray(sJson?.streams) ? sJson.streams : [];
-
-  // 3) Populate picker
-  setPickerMeta({
-    id,
-    title: m.name || "Untitled",
-    author: m?.audiobook?.author || "",
-    cover: m.poster || undefined,
-  });
-  setPickerStreams(streams);
-  setPickerOpen(true);
-}, []);
+    // 3) Populate picker
+    setPickerMeta({
+      id,
+      title: m.name || "Untitled",
+      author: m?.audiobook?.author || "",
+      cover: m.poster || undefined,
+    });
+    setPickerStreams(streams);
+    setPickerOpen(true);
+  }, []);
 
   const chooseStream = React.useCallback((s: StreamItem) => {
     if (!pickerMeta) return;
@@ -158,51 +158,65 @@ const openPicker = React.useCallback(async (id: string) => {
     setPickerOpen(false); // close picker
   }, [pickerMeta]);
 
-  // ---- Small inline view for search results ----
+  // ---- Search view (Tailwind grid) ----
   const SearchView = () => {
     const deduped = uniqById(results);
-
     return (
-      <div>
-        <div className="row-head">
-          <div className="row-title">Search</div>
-          <div className="muted">
+      <div className="mt-7">
+        <div className="flex items-baseline justify-between px-1 mb-3">
+          <div className="font-extrabold tracking-tight text-[clamp(16px,1.6vw,20px)]">Search</div>
+          <div className="text-white/60 text-xs">
             {searching ? "Searching…" : `${deduped.length} result${deduped.length === 1 ? "" : "s"}`}
           </div>
         </div>
-        <div className="row-wrap">
-          <div className="row">
-            {deduped.map((b: any, i: number) => (
-              <AudiobookCard
-                key={`${b.id}#${i}`}
-                title={b.name || "Untitled"}
-                author={b.author || ""}
-                poster={b.poster || undefined}
-                onClick={() => openPicker(b.id)}
-              />
-            ))}
-          </div>
+
+        <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(180px,1fr))]">
+          {deduped.map((b: any, i: number) => (
+            <AudiobookCard
+              key={`${b.id}#${i}`}
+              title={b.name || "Untitled"}
+              author={b.author || ""}
+              poster={b.poster || undefined}
+              onClick={() => openPicker(b.id)}
+            />
+          ))}
         </div>
       </div>
     );
   };
 
-  // ---- Compute body (no hooks below this line) ----
+  // ---- Body (no hooks below) ----
   const body = !user ? (
     <Login addonBase={ADDON_BASE} onAuthed={handleAuthed} />
   ) : (
-    <div className="app">
-      <Sidebar />
-      <TopBar query={query} setQuery={setQuery} />
+    <div className="min-h-screen grid grid-cols-[72px_1fr] md:grid-cols-1">
+      {/* Sidebar / Rail */}
+      <aside className="border-r border-white/10 bg-white/5 backdrop-blur p-2 flex flex-col items-center gap-2">
+        <Sidebar />
+      </aside>
 
-    <main className="content">
-      {query.trim()
-        ? <ErrorBoundary><SearchView /></ErrorBoundary>
-        : tab === "discover" ? <ErrorBoundary><Discover openItem={openPicker} /></ErrorBoundary>
-        : tab === "library"  ? <ErrorBoundary><Library /></ErrorBoundary>
-        : <ErrorBoundary><Addons /></ErrorBoundary>}
-    </main>
+      {/* Main column */}
+      <div className="flex flex-col min-h-screen">
+        {/* Top bar */}
+        <header className="sticky top-0 z-10 border-b border-white/10 bg-[#0f1118]/50 backdrop-blur">
+          <div className="w-full max-w-[1440px] mx-auto px-4 py-3">
+            <TopBar query={query} setQuery={setQuery} />
+          </div>
+        </header>
 
+        {/* Content */}
+        <main className="flex-1 flex justify-center px-4 md:px-4 pt-6 pb-28">
+          <div className="w-full max-w-[1440px]">
+            {query.trim()
+              ? <ErrorBoundary><SearchView /></ErrorBoundary>
+              : tab === "discover" ? <ErrorBoundary><Discover openItem={openPicker} /></ErrorBoundary>
+              : tab === "library"  ? <ErrorBoundary><Library /></ErrorBoundary>
+              : <ErrorBoundary><Addons /></ErrorBoundary>}
+          </div>
+        </main>
+      </div>
+
+      {/* Picker + Player (outside scrolling content) */}
       <StreamPicker
         open={pickerOpen}
         onClose={() => setPickerOpen(false)}
@@ -213,15 +227,19 @@ const openPicker = React.useCallback(async (id: string) => {
         onChoose={chooseStream}
       />
 
-      <Player
-        id={current?.id}
-        title={current?.title}
-        author={current?.author}
-        src={current?.src || ""}
-        sourceTitle={current?.sourceTitle}
-        chapters={current?.chapters}
-        duration={current?.duration}
-      />
+      <footer className="fixed left-[72px] md:left-0 right-0 bottom-0 h-[84px] bg-[#0e1117]/90 border-t border-white/10 backdrop-blur">
+        <div className="w-full max-w-[1440px] mx-auto h-full px-4 flex items-center">
+          <Player
+            id={current?.id}
+            title={current?.title}
+            author={current?.author}
+            src={current?.src || ""}
+            sourceTitle={current?.sourceTitle}
+            chapters={current?.chapters}
+            duration={current?.duration}
+          />
+        </div>
+      </footer>
     </div>
   );
 
