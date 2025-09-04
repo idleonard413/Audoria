@@ -102,6 +102,91 @@ function passThroughHeaders(originHeaders, res) {
   res.setHeader("Timing-Allow-Origin", "*");
 }
 
+// RSS utilities
+const { XMLParser } = require("fast-xml-parser");
+
+function hhmmssToSeconds(s) {
+  if (!s) return undefined;
+  const parts = String(s).trim().split(":").map(n => parseInt(n, 10));
+  if (parts.some(isNaN)) return undefined;
+  if (parts.length === 3) return parts[0]*3600 + parts[1]*60 + parts[2];
+  if (parts.length === 2) return parts[0]*60 + parts[1];
+  return undefined;
+}
+
+// best-effort index for sorting tracks
+function extractEpisodeIndex(item) {
+  // explicit <episode> if present
+  const ep = Number(item?.episode ?? item?.["itunes:episode"] ?? NaN);
+  if (!Number.isNaN(ep)) return ep;
+
+  // last number in title
+  const t = String(item?.title || "");
+  const m1 = t.match(/\b(\d{1,3})\b(?!.*\b\d{1,3}\b)/);
+  if (m1) return Number(m1[1]);
+
+  // number in filename
+  const url = item?.enclosure?.["@_url"] || item?.enclosure?.url ||
+              item?.content?.["@_url"]   || item?.content?.url ||
+              item?.link?.["@_href"]     || item?.link?.href  ||
+              item?.link || "";
+  const m2 = String(url).match(/(\d{1,3})(?=[^\d]*\.(mp3|m4a|m4b))/i);
+  if (m2) return Number(m2[1]);
+
+  return undefined;
+}
+
+async function fetchRssTracks(rssUrl, timeoutMs = 8000) {
+  const txt = await safeFetchText(rssUrl, { timeoutMs });        // you already have safeFetchText
+  const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: "@_" });
+  const rss = parser.parse(txt);
+
+  // RSS 2.0 or Atom (LibriVox uses RSS)
+  const items = [].concat(rss?.rss?.channel?.item || rss?.feed?.entry || []);
+  if (!items.length) return [];
+
+  const tracks = items.map((it, i) => {
+    const url =
+      it?.enclosure?.["@_url"] || it?.enclosure?.url ||
+      it?.content?.["@_url"]   || it?.content?.url   ||
+      it?.link?.["@_href"]     || it?.link?.href     ||
+      it?.link || "";
+
+    const mime =
+      it?.enclosure?.["@_type"] || it?.enclosure?.type ||
+      it?.content?.["@_type"]   || it?.content?.type || "audio/mpeg";
+
+    const title = String(it?.title || `Track ${i + 1}`).trim();
+    const durTxt = (it?.duration ?? it?.["itunes:duration"] ?? "").toString().trim();
+    const duration = hhmmssToSeconds(durTxt);
+
+    return {
+      _idx: extractEpisodeIndex(it) ?? (i + 1),
+      url,
+      mime,
+      title,
+      duration,
+    };
+  });
+
+  // Ascending (Track 1 … Track N)
+  tracks.sort((a, b) => a._idx - b._idx);
+
+  // Map to Stremio streams, proxied for CORS
+  return tracks
+    .filter(t => t.url)
+    .map((t, i) => ({
+      title: t.title,                                  // <-- shown in picker
+      name: `Track ${String(i + 1).padStart(2, "0")}`, // optional fallback
+      url: `${ADDON_BASE}/proxy?u=${encodeURIComponent(t.url)}`,
+      type: "url",
+      availability: 1,
+      behaviorHints: { notWebReady: false },
+      mimeType: t.mime,
+      duration: t.duration,
+    }));
+}
+
 
 // Safe JSON fetch (timeout, never throws)
 async function safeFetchJson(url, { timeoutMs = 4000, headers = {} } = {}) {
@@ -288,40 +373,8 @@ async function lvFetchById(lvId) {
   const rec = (data.books || [])[0];
   if (!rec) return null;
 
-  // Build MP3 streams ascending (from sections)
-  let mp3 = [];
-  if (Array.isArray(rec.sections) && rec.sections.length) {
-    const sections = [...rec.sections].sort((a, b) => {
-      const an = Number(a?.section_number ?? a?.track_number ?? a?.id ?? 0);
-      const bn = Number(b?.section_number ?? b?.track_number ?? b?.id ?? 0);
-      return (Number.isFinite(an) && Number.isFinite(bn)) ? (an - bn) : 0;
-    });
-    sections.forEach((s, i) => {
-      const u = s?.file_url ? toHttps(s.file_url) : null;
-      if (!u || (!u.endsWith(".mp3") && !u.includes(".mp3"))) return;
-      const dur = typeof s.playtime_seconds === "number"
-        ? s.playtime_seconds
-        : (typeof s.playtime === "string" ? parseHmsToSeconds(s.playtime) : undefined);
-      mp3.push({
-        title: (s.section_title ? `Track ${i + 1}: ${s.section_title}` : `Track ${i + 1}`),
-        url: u,
-        mime: "audio/mpeg",
-        duration: dur
-      });
-    });
-  }
-
-  // 🔁 Fallback: if no usable sections, parse the RSS
-  if ((!mp3 || mp3.length === 0) && rec.url_rss) {
-    try {
-      const rssRes = await fetch(toHttps(rec.url_rss), { redirect: "follow" });
-      if (rssRes.ok) {
-        const xml = await rssRes.text();
-        const fromRss = parseRssTracks(xml);
-        if (fromRss.length) mp3 = fromRss;
-      }
-    } catch {}
-  }
+  const rssUrl = `https://librivox.org/rss/${encodeURIComponent(String(librivoxId))}`;
+  const streams = await fetchRssTracks(rssUrl);
 
   return {
     lvId: rec.id,
@@ -332,7 +385,7 @@ async function lvFetchById(lvId) {
     description: rec.description || "",
     coverFallback: bestArchiveCover(rec.url_iarchive, rec.url_librivox),
     rss: rec.url_rss || null,
-    streams: mp3
+    streams: streams
   };
 }
 
