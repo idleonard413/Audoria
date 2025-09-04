@@ -15,7 +15,7 @@ function isPlayable(s: StreamItem) {
 
 function sourceLabel(s: StreamItem) {
   const label = s.title || s.name || "Source";
-  const host = (() => { try { return new URL(s.url).host; } catch { return ""; } })();
+  const host = "LibriVox";
   return host ? `${label} — ${host}` : label;
 }
 
