@@ -178,7 +178,7 @@ async function fetchRssTracks(rssUrl, timeoutMs = 8000) {
     .map((t, i) => ({
       title: t.title,                                  // <-- shown in picker
       name: `Track ${String(i + 1).padStart(2, "0")}`, // optional fallback
-      url: `${ADDON_BASE}/proxy?u=${encodeURIComponent(t.url)}`,
+      url: t.url,
       type: "url",
       availability: 1,
       behaviorHints: { notWebReady: false },
@@ -364,17 +364,27 @@ async function lvFindByTitleAuthor(title, author) {
 
 async function lvFetchById(lvId) {
   if (!lvId) return null;
+
+  // Example: LV_BASE = "https://librivox.org/api/feed/audiobooks/"
   const url = new URL(LV_BASE);
   url.searchParams.set("format", "json");
   url.searchParams.set("extended", "1");
   url.searchParams.set("id", String(lvId));
+
   const data = await safeFetchJson(url.toString(), { timeoutMs: 8000 });
   if (!data) return null;
   const rec = (data.books || [])[0];
   if (!rec) return null;
 
-  const rssUrl = `https://librivox.org/rss/${encodeURIComponent(String(librivoxId))}`;
-  const streams = await fetchRssTracks(rssUrl);
+  // Prefer API-provided RSS; fallback to predictable /rss/<id>
+  const rssUrl = rec.url_rss || `https://librivox.org/rss/${encodeURIComponent(String(lvId))}`;
+  let streams = [];
+  try {
+    streams = await fetchRssTracks(rssUrl);     // returns raw URLs + titles + durations
+  } catch (e) {
+    console.warn("RSS expand failed", e);
+    streams = [];
+  }
 
   return {
     lvId: rec.id,
@@ -384,10 +394,11 @@ async function lvFetchById(lvId) {
       : "",
     description: rec.description || "",
     coverFallback: bestArchiveCover(rec.url_iarchive, rec.url_librivox),
-    rss: rec.url_rss || null,
-    streams: streams
+    rss: rssUrl,
+    streams,                                     // RAW urls here
   };
 }
+
 
 
 async function lvList(limit = 50, offset = 0) {
@@ -538,21 +549,28 @@ app.get("/stream/:type/:id.json", async (req, res) => {
   }
 
   try {
-    // if we already cached lvId from catalog/meta, use it
     let streams = [];
+
     if (intent.lvId) {
       const lv = await lvFetchById(intent.lvId);
       streams = lv?.streams || [];
     } else {
-      // resolve by title/author
-      const { streams: s, lvId } = await resolveByTitleAuthor({ id, title: intent.title, author: intent.author });
-      streams = s;
+      const { streams: s, lvId } = await resolveByTitleAuthor({
+        id, title: intent.title, author: intent.author
+      });
+      streams = s || [];
       if (lvId) catalogIndex.set(id, { title: intent.title, author: intent.author, lvId });
     }
 
-    // proxy stream URLs
+    // Proxy once
     const base = `${req.protocol}://${req.get("host")}`;
-    streams = streams.map(s => ({ ...s, url: `${base}/proxy?u=${encodeURIComponent(toHttps(s.url))}` }));
+    const alreadyProxied = (u) => u.startsWith(`${base}/proxy?u=`) || u.includes("/proxy?u=");
+
+    streams = (streams || []).map(s => {
+      const raw = toHttps(s.url);
+      const proxied = alreadyProxied(raw) ? raw : `${base}/proxy?u=${encodeURIComponent(raw)}`;
+      return { ...s, url: proxied };
+    });
 
     res.json({ streams });
   } catch (e) {
@@ -560,6 +578,7 @@ app.get("/stream/:type/:id.json", async (req, res) => {
     res.status(500).json({ error: "resolver failed" });
   }
 });
+
 
 // Search: Open Library (up to 10), no blocking enrichment here
 app.get("/search.json", async (req, res) => {
