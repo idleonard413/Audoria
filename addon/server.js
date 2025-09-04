@@ -137,48 +137,68 @@ function extractEpisodeIndex(item) {
 }
 
 async function fetchRssTracks(rssUrl, timeoutMs = 8000) {
-  const txt = await safeFetchJson(rssUrl, { timeoutMs });        // you already have safeFetchText
-  const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: "@_" });
-  const rss = parser.parse(txt);
+  const txt = await safeFetchJson(rssUrl, { timeoutMs }); // your existing helper
 
-  // RSS 2.0 or Atom (LibriVox uses RSS)
-  const items = [].concat(rss?.rss?.channel?.item || rss?.feed?.entry || []);
+  if (!txt || typeof txt !== "string" || !/[<]/.test(txt)) {
+    throw new Error(`RSS fetch returned empty/non-XML from ${rssUrl}`);
+  }
+
+  let rss;
+  try {
+    const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: "@_" });
+    rss = parser.parse(txt);
+  } catch (e) {
+    console.warn("RSS parse failed:", (e && e.message) || e, "snippet:", txt.slice(0, 200));
+    throw e;
+  }
+
+  // Support RSS 2.0 and Atom
+  let items = [];
+  if (rss?.rss?.channel?.item) items = [].concat(rss.rss.channel.item);
+  else if (rss?.feed?.entry)   items = [].concat(rss.feed.entry);
+
   if (!items.length) return [];
 
-  const tracks = items.map((it, i) => {
-    const url =
-      it?.enclosure?.["@_url"] || it?.enclosure?.url ||
-      it?.content?.["@_url"]   || it?.content?.url   ||
-      it?.link?.["@_href"]     || it?.link?.href     ||
+  const tracks = items.map((raw, i) => {
+    const it = first(raw);
+    const enclosure = first(it?.enclosure);
+    const content   = first(it?.content);
+    const link      = first(it?.link);
+
+    const rawUrl =
+      enclosure?.["@_url"] || enclosure?.url ||
+      content?.["@_url"]   || content?.url   ||
+      link?.["@_href"]     || link?.href     ||
       it?.link || "";
 
     const mime =
-      it?.enclosure?.["@_type"] || it?.enclosure?.type ||
-      it?.content?.["@_type"]   || it?.content?.type || "audio/mpeg";
+      enclosure?.["@_type"] || enclosure?.type ||
+      content?.["@_type"]   || content?.type ||
+      "audio/mpeg";
 
-    const title = String(it?.title || `Track ${i + 1}`).trim();
-    const durTxt = (it?.duration ?? it?.["itunes:duration"] ?? "").toString().trim();
+    const title = String(first(it?.title) || `Track ${i + 1}`).trim();
+
+    const durNode = it?.duration ?? it?.["itunes:duration"] ?? it?.["itunes:Duration"];
+    const durTxt = nodeText(durNode).trim();
     const duration = hhmmssToSeconds(durTxt);
 
     return {
       _idx: extractEpisodeIndex(it) ?? (i + 1),
-      url,
+      url: rawUrl,
       mime,
       title,
       duration,
     };
   });
 
-  // Ascending (Track 1 … Track N)
   tracks.sort((a, b) => a._idx - b._idx);
 
-  // Map to Stremio streams, proxied for CORS
   return tracks
     .filter(t => t.url)
     .map((t, i) => ({
-      title: t.title,                                  // <-- shown in picker
-      name: `Track ${String(i + 1).padStart(2, "0")}`, // optional fallback
-      url: t.url,
+      title: t.title,                                  // label in picker
+      name: `Track ${String(i + 1).padStart(2, "0")}`, // fallback
+      url: t.url,                                      // RAW url (route will proxy)
       type: "url",
       availability: 1,
       behaviorHints: { notWebReady: false },
