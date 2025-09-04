@@ -103,6 +103,7 @@ function passThroughHeaders(originHeaders, res) {
 }
 
 // RSS utilities
+const fetch = require("node-fetch"); // if not already
 const { XMLParser } = require("fast-xml-parser");
 
 function hhmmssToSeconds(s) {
@@ -114,32 +115,59 @@ function hhmmssToSeconds(s) {
   return undefined;
 }
 
-// best-effort index for sorting tracks
 function extractEpisodeIndex(item) {
-  // explicit <episode> if present
   const ep = Number(item?.episode ?? item?.["itunes:episode"] ?? NaN);
   if (!Number.isNaN(ep)) return ep;
-
-  // last number in title
   const t = String(item?.title || "");
   const m1 = t.match(/\b(\d{1,3})\b(?!.*\b\d{1,3}\b)/);
   if (m1) return Number(m1[1]);
-
-  // number in filename
   const url = item?.enclosure?.["@_url"] || item?.enclosure?.url ||
               item?.content?.["@_url"]   || item?.content?.url ||
               item?.link?.["@_href"]     || item?.link?.href  ||
               item?.link || "";
   const m2 = String(url).match(/(\d{1,3})(?=[^\d]*\.(mp3|m4a|m4b))/i);
   if (m2) return Number(m2[1]);
-
   return undefined;
 }
 
-async function fetchRssTracks(rssUrl, timeoutMs = 8000) {
-  const txt = await safeFetchJson(rssUrl, { timeoutMs }); // your existing helper
+const first = (v) => Array.isArray(v) ? v[0] : v;
+const nodeText = (v) => {
+  if (v == null) return "";
+  if (typeof v === "string") return v;
+  if (typeof v === "number") return String(v);
+  if (typeof v === "object" && v["#text"]) return String(v["#text"]);
+  return String(v);
+};
 
-  if (!txt || typeof txt !== "string" || !/[<]/.test(txt)) {
+async function fetchTextRobust(url, { timeoutMs = 10000 } = {}) {
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const r = await fetch(url, {
+      redirect: "follow",
+      signal: controller.signal,
+      headers: {
+        "Accept": "application/rss+xml, application/xml;q=0.9, text/xml;q=0.8, */*;q=0.5",
+        "User-Agent": "Audoria/1.0 (+https://example.local) node-fetch",
+      },
+    });
+    if (!r.ok) {
+      throw new Error(`HTTP ${r.status}`);
+    }
+    // Use arrayBuffer -> UTF-8 to be resilient to mislabeled content-types
+    const buf = Buffer.from(await r.arrayBuffer());
+    let txt = buf.toString("utf8");
+    // strip BOM if present
+    if (txt.charCodeAt(0) === 0xFEFF) txt = txt.slice(1);
+    return txt;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+async function fetchRssTracksFromUrl(rssUrl, { timeoutMs = 10000 } = {}) {
+  const txt = await fetchTextRobust(rssUrl, { timeoutMs });
+  if (!txt || typeof txt !== "string" || !txt.includes("<")) {
     throw new Error(`RSS fetch returned empty/non-XML from ${rssUrl}`);
   }
 
@@ -148,11 +176,10 @@ async function fetchRssTracks(rssUrl, timeoutMs = 8000) {
     const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: "@_" });
     rss = parser.parse(txt);
   } catch (e) {
-    console.warn("RSS parse failed:", (e && e.message) || e, "snippet:", txt.slice(0, 200));
+    console.warn("RSS parse failed for", rssUrl, "snippet:", txt.slice(0, 200));
     throw e;
   }
 
-  // Support RSS 2.0 and Atom
   let items = [];
   if (rss?.rss?.channel?.item) items = [].concat(rss.rss.channel.item);
   else if (rss?.feed?.entry)   items = [].concat(rss.feed.entry);
@@ -173,8 +200,7 @@ async function fetchRssTracks(rssUrl, timeoutMs = 8000) {
 
     const mime =
       enclosure?.["@_type"] || enclosure?.type ||
-      content?.["@_type"]   || content?.type ||
-      "audio/mpeg";
+      content?.["@_type"]   || content?.type || "audio/mpeg";
 
     const title = String(first(it?.title) || `Track ${i + 1}`).trim();
 
@@ -196,9 +222,9 @@ async function fetchRssTracks(rssUrl, timeoutMs = 8000) {
   return tracks
     .filter(t => t.url)
     .map((t, i) => ({
-      title: t.title,                                  // label in picker
-      name: `Track ${String(i + 1).padStart(2, "0")}`, // fallback
-      url: t.url,                                      // RAW url (route will proxy)
+      title: t.title,
+      name: `Track ${String(i + 1).padStart(2, "0")}`,
+      url: t.url,            // raw; route will proxy
       type: "url",
       availability: 1,
       behaviorHints: { notWebReady: false },
@@ -206,6 +232,35 @@ async function fetchRssTracks(rssUrl, timeoutMs = 8000) {
       duration: t.duration,
     }));
 }
+
+// Try a set of likely URLs and return the first that parses
+async function fetchRssTracksMulti({ lvId, preferred }) {
+  const id = String(lvId);
+  const candidates = [
+    preferred,                                           // e.g., rec.url_rss (if provided)
+    `https://librivox.org/rss/${id}`,
+    `https://librivox.org/rss/${id}/`,
+    `https://www.librivox.org/rss/${id}`,
+    `https://www.librivox.org/rss/${id}/`,
+    // last-resort mirror you showed earlier (comment out if not desired):
+    `https://politepol.com/bindlr/s/librivox.org/rss/${id}`,
+  ].filter(Boolean);
+
+  let lastErr;
+  for (const u of candidates) {
+    try {
+      const streams = await fetchRssTracksFromUrl(u);
+      if (streams.length) return streams;
+      // if no items, keep trying the next candidate
+    } catch (e) {
+      lastErr = e;
+      // keep trying
+    }
+  }
+  if (lastErr) throw lastErr;
+  return []; // nothing worked but no explicit error
+}
+
 
 
 // Safe JSON fetch (timeout, never throws)
@@ -385,7 +440,6 @@ async function lvFindByTitleAuthor(title, author) {
 async function lvFetchById(lvId) {
   if (!lvId) return null;
 
-  // Example: LV_BASE = "https://librivox.org/api/feed/audiobooks/"
   const url = new URL(LV_BASE);
   url.searchParams.set("format", "json");
   url.searchParams.set("extended", "1");
@@ -396,11 +450,12 @@ async function lvFetchById(lvId) {
   const rec = (data.books || [])[0];
   if (!rec) return null;
 
-  // Prefer API-provided RSS; fallback to predictable /rss/<id>
-  const rssUrl = rec.url_rss || `https://librivox.org/rss/${encodeURIComponent(String(lvId))}`;
   let streams = [];
   try {
-    streams = await fetchRssTracks(rssUrl);     // returns raw URLs + titles + durations
+    streams = await fetchRssTracksMulti({
+      lvId,
+      preferred: rec.url_rss || null,
+    });
   } catch (e) {
     console.warn("RSS expand failed", e);
     streams = [];
@@ -414,10 +469,11 @@ async function lvFetchById(lvId) {
       : "",
     description: rec.description || "",
     coverFallback: bestArchiveCover(rec.url_iarchive, rec.url_librivox),
-    rss: rssUrl,
-    streams,                                     // RAW urls here
+    rss: rec.url_rss || `https://librivox.org/rss/${encodeURIComponent(String(lvId))}`,
+    streams,
   };
 }
+
 
 
 
