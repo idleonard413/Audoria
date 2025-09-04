@@ -1,0 +1,12 @@
+@import "tailwindcss";
+
+/* Optional: define your brand tokens with the new @theme API */
+@theme {
+  --color-primary-400: #22c55e;
+  --color-primary-500: #16a34a;
+  --color-primary-600: #15803d;
+
+  --color-accent-400:  #fb923c;
+  --color-accent-500:  #f97316;
+  --color-accent-600:  #ea580c;
+}

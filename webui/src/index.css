@@ -1,0 +1,13 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Dark gradient background + system font */
+:root { color-scheme: dark; }
+html, body, #root { height: 100%; }
+body {
+  @apply text-ink bg-[#0a0c12];
+  background:
+    radial-gradient(1200px 600px at 10% 0%, #121621 0%, #0e1118 60%, #0a0c12 100%),
+    linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,0));
+}
