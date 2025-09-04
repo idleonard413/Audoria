@@ -103,7 +103,6 @@ function passThroughHeaders(originHeaders, res) {
 }
 
 // RSS utilities
-const fetch = require("node-fetch"); // if not already
 const { XMLParser } = require("fast-xml-parser");
 
 function hhmmssToSeconds(s) {
