@@ -12,7 +12,7 @@ import StreamPicker, { StreamItem } from "@/components/StreamPicker";
 import Login from "./pages/Login";
 import { auth } from "./auth/store";
 import ErrorBoundary from "./components/ErrorBoundary";
-import "./styles/app.css";
+import './styles/tailwind.css'
 
 function uniqById<T extends { id: string }>(arr: T[]): T[] {
   const seen = new Set<string>();
