@@ -137,7 +137,7 @@ function extractEpisodeIndex(item) {
 }
 
 async function fetchRssTracks(rssUrl, timeoutMs = 8000) {
-  const txt = await safeFetchText(rssUrl, { timeoutMs });        // you already have safeFetchText
+  const txt = await safeFetchJson(rssUrl, { timeoutMs });        // you already have safeFetchText
   const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: "@_" });
   const rss = parser.parse(txt);
 
