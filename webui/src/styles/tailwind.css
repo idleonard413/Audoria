@@ -1,12 +1,14 @@
 @import "tailwindcss";
 
-/* Optional: define your brand tokens with the new @theme API */
+/* Brand palette + text tokens */
 @theme {
-  --color-primary-400: #22c55e;
-  --color-primary-500: #16a34a;
-  --color-primary-600: #15803d;
+  --color-ink:             #e9edf6;
+  --color-ink-muted:       #aab0bd;
+  --color-line:            rgba(255,255,255,.08);
 
-  --color-accent-400:  #fb923c;
-  --color-accent-500:  #f97316;
-  --color-accent-600:  #ea580c;
+  --color-brand:           #0ea5e9; /* blue accent for badges/hover */
+  --color-brand-600:       #0284c7;
+
+  --radius-card:           1.25rem;  /* ~20px rounded */
+  --shadow-card:           0 8px 24px rgba(0,0,0,.25);
 }
