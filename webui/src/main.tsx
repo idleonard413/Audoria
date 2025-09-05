@@ -277,9 +277,11 @@ function App() {
   const body = !user ? (
     <Login addonBase={addonBase} onAuthed={handleAuthed} />
   ) : (
-    <div className="min-h-screen grid grid-cols-[72px_1fr] md:grid-cols-1">
+    <div className="min-h-screen grid grid-cols-1 md:grid-cols-[80px_minmax(0,1fr)]">
       {/* Sidebar / Rail */}
-      <aside className="flex flex-col items-center gap-2 border-r border-white/10 bg-white/5 p-2 backdrop-blur">
+      <aside className="border-r border-white/10 bg-white/5 backdrop-blur p-2
+                  flex flex-col items-center gap-2
+                  md:sticky md:top-0 md:h-[100dvh]">
         <Sidebar activeTab={tab} onChange={setTab} />
       </aside>
 
@@ -336,7 +338,7 @@ function App() {
         onChoose={chooseStream}
       />
 
-      <footer className="fixed bottom-0 left-[72px] right-0 h-[84px] border-t border-white/10 bg-[#0e1117]/90 backdrop-blur md:left-0">
+      <footer className="fixed bottom-0 left-0 md:left-[80px] right-0 h-[84px] border-t border-white/10 bg-[#0e1117]/90 backdrop-blur">
         <div className="mx-auto flex h-full w-full max-w-[1440px] items-center px-4">
           <Player
             id={current?.id}
