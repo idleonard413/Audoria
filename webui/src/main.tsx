@@ -170,6 +170,19 @@ function App() {
     };
   }, [query, addonBase]);
 
+  // read hash on load
+  React.useEffect(() => {
+    const h = (location.hash || "").replace(/^#/, "");
+    if (h === "addons" || h === "library" || h === "discover") setTab(h as any);
+  }, []);
+
+  // write hash when tab changes
+  React.useEffect(() => {
+    const next = `#${tab}`;
+    if (location.hash !== next) history.replaceState(null, "", next);
+  }, [tab]);
+
+
   /* -------------------------------- Callbacks -------------------------------- */
 
   const handleAuthed = React.useCallback(() => {
@@ -267,7 +280,7 @@ function App() {
     <div className="min-h-screen grid grid-cols-[72px_1fr] md:grid-cols-1">
       {/* Sidebar / Rail */}
       <aside className="flex flex-col items-center gap-2 border-r border-white/10 bg-white/5 p-2 backdrop-blur">
-        <Sidebar />
+        <Sidebar activeTab={tab} onChange={setTab} />
       </aside>
 
       {/* Main column */}
