@@ -1,5 +1,6 @@
 // src/components/Sidebar.tsx
 import React from "react";
+import logo from "@/assets/logo.png";
 
 export type Tab = "discover" | "library" | "addons";
 
@@ -28,8 +29,9 @@ const Btn: React.FC<{
 export default function Sidebar({ activeTab, onChange }: Props) {
   return (
     <nav className="rail">
-      <div className="brand text-sm">A</div>
-
+      <div className="brand">
+        <img src={logo} alt="Audoria" className="h-8 w-8 rounded-md" />
+      </div>
       <Btn
         active={activeTab === "discover"}
         onClick={() => onChange("discover")}
