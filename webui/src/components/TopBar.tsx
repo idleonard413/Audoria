@@ -12,10 +12,6 @@ export default function TopBar({ query, setQuery }:{ query:string; setQuery:(v:s
             onChange={(e)=>setQuery(e.target.value)}
           />
         </div>
-        <div className="top-actions">
-          <div className="action-btn" title="Fullscreen">⛶</div>
-          <div className="action-btn" title="Account">👤</div>
-        </div>
       </div>
     </div>
   );
