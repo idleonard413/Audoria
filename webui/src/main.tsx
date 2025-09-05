@@ -31,21 +31,17 @@ function uniqById<T extends { id: string }>(arr: T[]): T[] {
 }
 
 // Runtime add-on base helper (no rebuild required)
-function getAddonBase(): string {
+function readAddonBase(): string {
   const ls = (() => {
-    try {
-      return localStorage.getItem("ADDON_BASE") || "";
-    } catch {
-      return "";
-    }
+    try { return localStorage.getItem("ADDON_BASE") || ""; } catch { return ""; }
   })();
   const win = (window as any).__ADDON_BASE as string | undefined;
   const env = ((import.meta as any)?.env?.VITE_ADDON_URL as string | undefined);
   const guess = `http://${location.hostname}:7000`;
   return (ls || win || env || guess).replace(/\/+$/, "");
 }
-const ADDON_BASE = getAddonBase();
-console.log("ADDON_BASE =", ADDON_BASE);
+//const ADDON_BASE = getAddonBase();
+//console.log("ADDON_BASE =", ADDON_BASE);
 
 /* -------------------------------- Types ---------------------------------- */
 
@@ -67,6 +63,17 @@ type HomeItem = { id: string; title: string; author?: string; cover?: string; ba
 /* -------------------------------- App ------------------------------------ */
 
 function App() {
+  const [addonBase, setAddonBase] = React.useState<string>(readAddonBase());
+
+  React.useEffect(() => {
+  const onStorage = (e: StorageEvent) => {
+    if (e.key === "ADDON_BASE") {
+      setAddonBase(readAddonBase());
+    }
+  };
+  window.addEventListener("storage", onStorage);
+  return () => window.removeEventListener("storage", onStorage);
+  }, []);
   // stable hooks order
   const [tab, setTab] = React.useState<Tab>("discover");
   const [current, setCurrent] = React.useState<CurrentTrack | null>(null);
@@ -98,17 +105,18 @@ function App() {
 
   // load current user (JWT) once
   React.useEffect(() => {
-    auth.me(ADDON_BASE).then(setUser);
-  }, []);
+    auth.me(addonBase).then(setUser);
+  }, [addonBase]);
 
   // load "Popular Audiobooks" for Home page (add-on catalog)
   React.useEffect(() => {
+    setHomeItems([]);
     let alive = true;
     (async () => {
       setHomeLoading(true);
       setHomeError(null);
       try {
-        const r = await fetch(`${ADDON_BASE}/catalog/other/audiobook.popular.json?limit=30`);
+        const r = await fetch(`${addonBase}/catalog/other/audiobook.popular.json?limit=30`);
         const j = await r.json().catch(() => ({}));
         const metas: any[] = Array.isArray(j?.metas) ? j.metas : [];
         const mapped: HomeItem[] = metas
@@ -132,7 +140,7 @@ function App() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [addonBase]);
 
   // debounced search (pulls up to 10 from addon)
   React.useEffect(() => {
@@ -146,7 +154,7 @@ function App() {
       }
       setSearching(true);
       try {
-        const r = await fetch(`${ADDON_BASE}/search.json?q=${encodeURIComponent(q)}&limit=10`);
+        const r = await fetch(`${addonBase}/search.json?q=${encodeURIComponent(q)}&limit=10`);
         const j = await r.json();
         if (!stop) setResults(Array.isArray(j?.metas) ? j.metas : []);
       } catch {
@@ -160,22 +168,22 @@ function App() {
       stop = true;
       clearTimeout(t);
     };
-  }, [query]);
+  }, [query, addonBase]);
 
   /* -------------------------------- Callbacks -------------------------------- */
 
   const handleAuthed = React.useCallback(() => {
-    auth.me(ADDON_BASE).then(setUser);
+    auth.me(addonBase).then(setUser);
   }, []);
 
   const openPicker = React.useCallback(async (id: string) => {
     // 1) Fetch metadata from addon
-    const metaRes = await fetch(`${ADDON_BASE}/meta/other/${encodeURIComponent(id)}.json`);
+    const metaRes = await fetch(`${addonBase}/meta/other/${encodeURIComponent(id)}.json`);
     const metaJson = await metaRes.json();
     const m = metaJson?.meta || {};
 
     // 2) Fetch streams from addon
-    const streamRes = await fetch(`${ADDON_BASE}/stream/other/${encodeURIComponent(id)}.json`);
+    const streamRes = await fetch(`${addonBase}/stream/other/${encodeURIComponent(id)}.json`);
     const sJson = await streamRes.json();
     const streams = Array.isArray(sJson?.streams) ? sJson.streams : [];
 
@@ -188,7 +196,7 @@ function App() {
     });
     setPickerStreams(streams);
     setPickerOpen(true);
-  }, []);
+  }, [addonBase]);
 
   const chooseStream = React.useCallback(
     (s: StreamItem) => {
@@ -254,7 +262,7 @@ function App() {
   /* --------------------------------- Body ---------------------------------- */
 
   const body = !user ? (
-    <Login addonBase={ADDON_BASE} onAuthed={handleAuthed} />
+    <Login addonBase={addonBase} onAuthed={handleAuthed} />
   ) : (
     <div className="min-h-screen grid grid-cols-[72px_1fr] md:grid-cols-1">
       {/* Sidebar / Rail */}
