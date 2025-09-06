@@ -12,6 +12,8 @@ import StreamPicker, { StreamItem } from "@/components/StreamPicker";
 import Login from "./pages/Login";
 import { auth } from "./auth/store";
 import ErrorBoundary from "./components/ErrorBoundary";
+import { dedupeMetas } from "@/lib/dedupe";
+
 
 // Tailwind v4 entry + tiny base
 import "./styles/tailwind.css";
@@ -119,7 +121,8 @@ function App() {
         const r = await fetch(`${addonBase}/catalog/other/audiobook.popular.json?limit=30`);
         const j = await r.json().catch(() => ({}));
         const metas: any[] = Array.isArray(j?.metas) ? j.metas : [];
-        const mapped: HomeItem[] = metas
+        const deduped = dedupeMetas(metas);
+        const mapped: HomeItem[] = deduped
           .filter((m) => m && typeof m.id === "string")
           .map((m) => ({
             id: m.id,
@@ -130,7 +133,7 @@ function App() {
             // badge: "1 CREDIT",
           }));
         if (!alive) return;
-        setHomeItems(uniqById(mapped));
+        setHomeItems(mapped);
       } catch (e: any) {
         if (alive) setHomeError(e?.message || "Failed to load");
       } finally {
@@ -156,7 +159,10 @@ function App() {
       try {
         const r = await fetch(`${addonBase}/search.json?q=${encodeURIComponent(q)}&limit=10`);
         const j = await r.json();
-        if (!stop) setResults(Array.isArray(j?.metas) ? j.metas : []);
+        if (!stop) {
+          const metas = Array.isArray(j?.metas) ? j.metas : [];
+          setResults(dedupeMetas(metas));
+          }
       } catch {
         if (!stop) setResults([]);
       } finally {
@@ -247,7 +253,7 @@ function App() {
   /* ------------------------------ Search view ------------------------------- */
 
   const SearchView = () => {
-    const deduped = uniqById(results);
+    const deduped = results;
     return (
       <div className="mt-7">
         <div className="mb-3 flex items-baseline justify-between px-1">
