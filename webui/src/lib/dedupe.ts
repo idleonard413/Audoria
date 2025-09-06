@@ -2,12 +2,11 @@
 
 export type MetaLike = {
   id: string;
-  name?: string;           // title
+  name?: string;           // title (or use "title" in some feeds)
   author?: string;
   poster?: string;
   description?: string;
   duration?: number;
-  // allow extra fields without typing everything
   [k: string]: any;
 };
 
@@ -29,8 +28,8 @@ const cleanAuthor = (s = "") =>
     .replace(/\s+/g, " ")
     .trim();
 
-/** Choose the "better" of two dup candidates */
-function better(a: MetaLike, b: MetaLike): MetaLike {
+/** Choose the "better" of two dup candidates, preserving subtype T */
+function better<T extends MetaLike>(a: T, b: T): T {
   // Prefer poster
   const pa = Boolean(a.poster), pb = Boolean(b.poster);
   if (pa !== pb) return pa ? a : b;
@@ -58,14 +57,13 @@ export function dedupeMetas<T extends MetaLike>(list: T[]): T[] {
   const picked = new Map<string, T>();
   for (const m of list) {
     if (!m || !m.id) continue;
-    const key =
-      cleanTitle(m.name || m["title"] || "") + "•" + cleanAuthor(m.author || "");
+    const title = m.name ?? (m as any).title ?? "";
+    const key = cleanTitle(title) + "•" + cleanAuthor(m.author || "");
     const prev = picked.get(key);
     if (!prev) {
       picked.set(key, m);
     } else {
-      // keep the better one
-      picked.set(key, better(prev, m));
+      picked.set(key, better(prev, m)); // now returns T
     }
   }
   return Array.from(picked.values());
