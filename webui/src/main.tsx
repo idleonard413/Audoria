@@ -9,6 +9,7 @@ import Addons from "@/pages/Addons";
 import Player from "@/components/Player";
 import AudiobookCard from "@/components/AudiobookCard";
 import StreamPicker, { StreamItem } from "@/components/StreamPicker";
+import Dock, { type DockItemData } from "@/components/Dock";
 import Login from "./pages/Login";
 import { auth } from "./auth/store";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -250,6 +251,48 @@ function App() {
     [pickerMeta]
   );
 
+  const dockItems: DockItemData[] = [
+    {
+      icon: (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M12 3l9 8h-3v9h-5v-6H11v6H6v-9H3l9-8z" />
+        </svg>
+      ),
+      label: "Discover",
+      onClick: () => setTab("discover"),
+      className:
+        tab === "discover"
+          ? "opacity-100 ring-2 ring-white/50 bg-white/15"
+          : "opacity-70 hover:opacity-100 hover:bg-white/10",
+    },
+    {
+      icon: (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M4 19h6a2 2 0 002-2V5a2 2 0 00-2-2H4v16zm0 2a2 2 0 002 2h6v-2H6V3H4v18zm10-2h6V3h-6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+        </svg>
+      ),
+      label: "Library",
+      onClick: () => setTab("library"),
+      className:
+        tab === "library"
+          ? "opacity-100 ring-2 ring-white/50 bg-white/15"
+          : "opacity-70 hover:opacity-100 hover:bg-white/10",
+    },
+    {
+      icon: (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M13 3a2 2 0 012 2v1h2a2 2 0 012 2v2h-1a2 2 0 100 4h1v2a2 2 0 01-2 2h-2v1a2 2 0 11-4 0v-1H8a2 2 0 01-2-2v-2H5a2 2 0 110-4h1V8a2 2 0 012-2h2V5a2 2 0 012-2z" />
+        </svg>
+      ),
+      label: "Add-ons",
+      onClick: () => setTab("addons"),
+      className:
+        tab === "addons"
+          ? "opacity-100 ring-2 ring-white/50 bg-white/15"
+          : "opacity-70 hover:opacity-100 hover:bg-white/10",
+    },
+  ];
+
   /* ------------------------------ Search view ------------------------------- */
 
   const SearchView = () => {
@@ -332,6 +375,22 @@ function App() {
           </div>
         </main>
       </div>
+
+      {dockItems.length > 0 && (
+        <div
+          className="pointer-events-none fixed left-0 right-0 z-30 flex justify-center px-4 md:left-[80px]"
+          style={{ bottom: "108px" }}
+        >
+          <Dock
+            items={dockItems}
+            panelHeight={64}
+            baseItemSize={48}
+            magnification={76}
+            distance={180}
+            className="pointer-events-auto"
+          />
+        </div>
+      )}
 
       {/* Picker + Player */}
       <StreamPicker
