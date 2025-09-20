@@ -5,7 +5,7 @@ import legacy from "@vitejs/plugin-legacy";
 import path from "path";
 
 export default defineConfig({
-  server: { host: true, port: 5173, strictPort: true, hmr: {host: '192.168.2.175', port: 5173 }},
+  server: { host: true, port: 5173, strictPort: true, hmr: { host: 'localhost', port: 5173 }},
   plugins: [
     react(),
     tailwindcss(),

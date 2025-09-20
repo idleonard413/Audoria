@@ -1,7 +1,7 @@
 import React from "react";
 import AudibleCard from "@/components/AudibleCard";
 
-type Item = { id: string; title: string; author?: string; cover?: string; badge?: string };
+type Item = { id: string; title: string; author?: string; cover?: string; badge?: string; type?: string };
 
 export default function Home({
   items,
@@ -9,7 +9,7 @@ export default function Home({
   heading = "Explore new Audible Originals and exclusives",
 }: {
   items: Item[];
-  onOpen: (id: string) => void;
+  onOpen: (id: string, type?: string, meta?: { title?: string; author?: string; cover?: string }) => void;
   heading?: string;
 }) {
   return (
@@ -24,10 +24,11 @@ export default function Home({
             title={b.title}
             author={b.author}
             badge={b.badge}              /* e.g., "1 CREDIT" */
-            onClick={() => onOpen(b.id)}
+            onClick={() => onOpen(b.id, b.type, { title: b.title, author: b.author, cover: b.cover })}
           />
         ))}
       </div>
     </section>
   );
 }
+

@@ -11,11 +11,14 @@ type Props = {
   cover?: string;
   src?: string;
   sourceTitle?: string;
-  duration?: number;            // seconds (optional; we'll also read from <audio>)
-  chapters?: Chapter[];         // optional
+  duration?: number;
+  chapters?: Chapter[];
   onPrev?: () => void;
   onNext?: () => void;
+  floatOffset?: number;
 };
+
+const SKIP_SECONDS = 30;
 
 export default function Player(p: Props) {
   const audioRef = React.useRef<HTMLAudioElement | null>(null);
@@ -24,7 +27,7 @@ export default function Player(p: Props) {
   React.useEffect(() => {
     const a = audioRef.current;
     if (!a || !p.id) return;
-    let timer: any;
+    let timer: ReturnType<typeof setInterval> | undefined;
     const tick = () => {
       const position = Math.floor(a.currentTime || 0);
       const duration = Math.floor((p.duration ?? a.duration) || 0);
@@ -35,16 +38,24 @@ export default function Player(p: Props) {
         title: p.title,
         author: p.author,
         poster: p.cover,
-        src: p.src
+        src: p.src,
       });
     };
-    const onPlay = () => { tick(); timer = setInterval(tick, PROG_INTERVAL); };
-    const onPause = () => { tick(); if (timer) clearInterval(timer); };
+    const onPlay = () => {
+      tick();
+      timer = setInterval(tick, PROG_INTERVAL);
+    };
+    const onPause = () => {
+      tick();
+      if (timer) clearInterval(timer);
+    };
     const onSeeked = () => tick();
+
     a.addEventListener("play", onPlay);
     a.addEventListener("pause", onPause);
     a.addEventListener("seeked", onSeeked);
     window.addEventListener("beforeunload", tick);
+
     return () => {
       if (timer) clearInterval(timer);
       window.removeEventListener("beforeunload", tick);
@@ -52,113 +63,155 @@ export default function Player(p: Props) {
       a.removeEventListener("pause", onPause);
       a.removeEventListener("seeked", onSeeked);
     };
-  }, [p.id, p.src, p.duration]);
+  }, [p.id, p.src, p.duration, p.author, p.cover, p.title]);
 
-  // Expose the <audio> element globally so a click in StreamPicker can call play()
   React.useEffect(() => {
     (window as any).__abAudioEl = audioRef.current || null;
-    return () => { (window as any).__abAudioEl = null; };
+    return () => {
+      (window as any).__abAudioEl = null;
+    };
   }, []);
+
   const [time, setTime] = React.useState(0);
   const [playing, setPlaying] = React.useState(false);
   const [mediaDur, setMediaDur] = React.useState<number>(0);
 
-  // Prefer prop duration if valid; otherwise use loaded metadata duration
   const duration = (Number.isFinite(p.duration ?? NaN) ? (p.duration as number) : mediaDur) || 0;
 
   const toggle = () => {
     const a = audioRef.current;
     if (!a) return;
-    if (a.paused) { a.play(); setPlaying(true); }
-    else { a.pause(); setPlaying(false); }
+    if (a.paused) {
+      void a.play();
+      setPlaying(true);
+    } else {
+      a.pause();
+      setPlaying(false);
+    }
   };
 
   const seek = (sec: number) => {
     const a = audioRef.current;
     if (!a) return;
-    const next = Math.max(0, Math.min(sec, (a.duration || duration || sec)));
+    const next = Math.max(0, Math.min(sec, a.duration || duration || sec));
     a.currentTime = next;
     setTime(next);
-    if (a.paused) { a.play(); setPlaying(true); }
+    if (a.paused) {
+      void a.play();
+      setPlaying(true);
+    }
   };
 
-  const fmt = (s: number) => {
-    if (!isFinite(s)) return "0:00";
-    const h = Math.floor(s / 3600);
-    const m = Math.floor((s % 3600) / 60);
-    const ss = Math.floor(s % 60).toString().padStart(2, "0");
-    return h > 0 ? `${h}:${m.toString().padStart(2, "0")}:${ss}` : `${m}:${ss}`;
+  const fmt = (seconds: number) => {
+    if (!Number.isFinite(seconds)) return "0:00";
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60).toString().padStart(2, "0");
+    return h > 0 ? `${h}:${m.toString().padStart(2, "0")}:${s}` : `${m}:${s}`;
   };
 
-  const hasUsefulChapters = Array.isArray(p.chapters) && p.chapters.some(c => (c.start || 0) > 0);
+  const hasUsefulChapters = Array.isArray(p.chapters) && p.chapters.some((c) => (c.start || 0) > 0);
+  const chapterOffset = (p.floatOffset ?? 120) + 24;
 
   return (
     <>
-      {/* Chapters (only if they have starts > 0) */}
       {hasUsefulChapters ? (
-        <div style={{
-          position: "sticky", bottom: 64, zIndex: 5,
-          background: "rgba(15,17,21,.9)", backdropFilter: "saturate(140%) blur(8px)",
-          borderTop: "1px solid rgba(255,255,255,.06)", padding: "8px 16px"
-        }}>
-          <div style={{ fontSize: 12, opacity: .8, marginBottom: 6 }}>Chapters</div>
-          <div style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(auto-fill,minmax(180px,1fr))" }}>
-            {p.chapters!.map((c, i) => (
-              <button key={i} onClick={() => seek(c.start)} title={`Go to ${fmt(c.start)}`}
-                style={{ textAlign: "left" }}>
-                {c.title} <span className="badge">· {fmt(c.start)}</span>
+        <div
+          className="glass-shell glass-chapters"
+          style={{ position: "sticky", bottom: chapterOffset, zIndex: 5 }}
+        >
+          <div className="glass-chapters__title">Chapters</div>
+          <div className="glass-chapters__grid">
+            {p.chapters!.map((chapter, index) => (
+              <button
+                key={index}
+                type="button"
+                className="glass-chapters__button"
+                onClick={() => seek(chapter.start)}
+                title={`Go to ${fmt(chapter.start)}`}
+              >
+                {chapter.title}
+                <span className="badge">{fmt(chapter.start)}</span>
               </button>
             ))}
           </div>
         </div>
       ) : null}
 
-      <footer className="player">
-        <div className="player-wrap" style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 12, padding: "10px 16px" }}>
-          <div style={{ display: "grid", gap: 4 }}>
-            <div style={{ fontWeight: 700 }}>{p.title ?? "Nothing playing"}</div>
-            <div>
-              {p.author ? <span className="badge">{p.author}</span> : null}
-              {p.sourceTitle ? <span className="badge" style={{ marginLeft: 6 }}>{p.sourceTitle}</span> : null}
-            </div>
+      <footer className="player glass-shell glass-player">
+        <div className="player__meta">
+          <div className="player__title">{p.title ?? "Nothing playing"}</div>
+          <div className="player__badges">
+            {p.author ? <span className="badge">{p.author}</span> : null}
+            {p.sourceTitle ? <span className="badge">{p.sourceTitle}</span> : null}
           </div>
-
-          <div className="controls" style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 420 }}>
-            <button onClick={() => seek(Math.max(0, time - 30))} title="Back 30s">⏮︎ 30s</button>
-            <button onClick={toggle}>{playing ? "⏸︎ Pause" : "▶︎ Play"}</button>
-            <button onClick={() => seek(time + 30)} title="Forward 30s">⏭︎ 30s</button>
-            <input
-              type="range"
-              min={0}
-              max={Math.max(1, duration)}
-              value={Math.min(time, duration)}
-              onChange={(e) => {
-                const a = audioRef.current; if (!a) return;
-                const v = Number(e.target.value);
-                a.currentTime = v;
-                setTime(v);
-              }}
-              style={{ flex: 1 }}
-            />
-            <div className="badge">{fmt(time)} / {fmt(duration)}</div>
-          </div>
-
-          <audio
-            ref={audioRef}
-            src={p.src}
-            crossOrigin="anonymous" 
-            playsInline
-            preload="metadata"
-            onLoadedMetadata={(e) => {
-              const a = e.currentTarget as HTMLAudioElement;
-              if (Number.isFinite(a.duration)) setMediaDur(a.duration);
-            }}
-            onTimeUpdate={(e) => setTime((e.currentTarget as HTMLAudioElement).currentTime)}
-            onPlay={() => setPlaying(true)}
-            onPause={() => setPlaying(false)}
-          />
         </div>
+
+        <div className="player__controls">
+          <button
+            type="button"
+            className="player__button"
+            onClick={() => seek(Math.max(0, time - SKIP_SECONDS))}
+            title={`Back ${SKIP_SECONDS} seconds`}
+            aria-label={`Rewind ${SKIP_SECONDS} seconds`}
+          >
+            {"<< "}{SKIP_SECONDS}s
+          </button>
+          <button
+            type="button"
+            className="player__button"
+            onClick={toggle}
+            title={playing ? "Pause playback" : "Play"}
+            aria-pressed={playing}
+          >
+            {playing ? "Pause" : "Play"}
+          </button>
+          <button
+            type="button"
+            className="player__button"
+            onClick={() => seek(time + SKIP_SECONDS)}
+            title={`Forward ${SKIP_SECONDS} seconds`}
+            aria-label={`Forward ${SKIP_SECONDS} seconds`}
+          >
+            {">> "}{SKIP_SECONDS}s
+          </button>
+          <input
+            className="player__scrubber"
+            type="range"
+            min={0}
+            max={Math.max(1, duration)}
+            value={Math.min(time, duration)}
+            onChange={(event) => {
+              const a = audioRef.current;
+              if (!a) return;
+              const value = Number(event.target.value);
+              a.currentTime = value;
+              setTime(value);
+            }}
+          />
+          <div className="player__time">
+            {fmt(time)} / {fmt(duration)}
+          </div>
+        </div>
+
+        <audio
+          ref={audioRef}
+          src={p.src}
+          crossOrigin="anonymous"
+          playsInline
+          preload="metadata"
+          onLoadedMetadata={(event) => {
+            const element = event.currentTarget as HTMLAudioElement;
+            if (Number.isFinite(element.duration)) setMediaDur(element.duration);
+          }}
+          onTimeUpdate={(event) => setTime((event.currentTarget as HTMLAudioElement).currentTime)}
+          onPlay={() => setPlaying(true)}
+          onPause={() => setPlaying(false)}
+        />
       </footer>
     </>
   );
 }
+
+
+

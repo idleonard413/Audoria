@@ -490,12 +490,33 @@ async function lvList(limit = 50, offset = 0) {
 // -------------- Resolver (OL metadata + LV streams) -------
 const catalogIndex = new Map(); // id -> { title, author, lvId }
 
+function normalizeTitleForLv(s = "") {
+  return String(s)
+    .replace(/\[[^\]]*\]/g, "")
+    .replace(/\([^)]*\)/g, "")
+    .replace(/\b(part|book|volume)\s+\d+[^a-z0-9]*$/i, "")
+    .replace(/[-\u2010-\u2015]/g, " " )
+    .replace(/\s+/g, " " )
+    .trim();
+}
+function normalizeAuthorForLv(s = "") {
+  return String(s)
+    .replace(/\([^)]*\)/g, "")
+    .replace(/[-\u2010-\u2015]/g, " " )
+    .replace(/\s+/g, " " )
+    .trim();
+}
+
 async function resolveByTitleAuthor({ id, title, author }) {
   // Look up OL metadata (title/author/desc/cover)
   const ol = await olEnrich(title, author);
+  const rawTitle = ol.title || title || "";
+  const rawAuthor = ol.author || author || "";
+  const searchTitle = normalizeTitleForLv(rawTitle);
+  const searchAuthor = normalizeAuthorForLv(rawAuthor);
 
   // Find LV record & streams
-  const lvRec = await lvFindByTitleAuthor(ol.title || title, ol.author || author);
+  const lvRec = await lvFindByTitleAuthor(searchTitle || rawTitle, searchAuthor || rawAuthor);
   const lv = await lvFetchById(lvRec?.id);
 
   // poster: prefer OL cover, else LV fallback
@@ -504,11 +525,11 @@ async function resolveByTitleAuthor({ id, title, author }) {
   const meta = {
     id,
     type: "other",
-    name: ol.title || lv?.title || title || "",
+    name: searchTitle || lv?.title || rawTitle || "",
     description: (ol.description || lv?.description || "").trim(),
     poster,
     audiobook: {
-      author: ol.author || lv?.author || author || "",
+      author: searchAuthor || lv?.author || rawAuthor || "",
       chapters: [], // (optional: could be mapped from LV sections if desired)
       duration: undefined
     },
@@ -674,10 +695,13 @@ app.get("/search.json", async (req, res) => {
       const author = (doc.author_name && doc.author_name[0]) || "";
       const workKey = (doc.key || "").replace("/works/", "");
       const baseSlug = slugify(`${title}-${author}`);
-      const id = workKey ? `audiobook:${baseSlug}-ol${workKey}` : `audiobook:${baseSlug}`;
+      const baseId = `audiobook:${baseSlug}`;
+      const id = workKey ? `${baseId}-ol${workKey}` : baseId;
 
       // cache minimal (no lvId yet; meta/stream will resolve later)
-      catalogIndex.set(id, { title, author });
+      const entry = { title, author };
+      catalogIndex.set(id, entry);
+      if (workKey) catalogIndex.set(baseId, entry);
 
       let cover = null;
       if (doc.cover_i) cover = `https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg`;
@@ -790,3 +814,6 @@ app.get("/", (_req, res) => res.send("Audoria add-on running. See /manifest.json
 app.listen(PORT, HOST, () => {
   console.log(`Audiobook add-on listening on http://${HOST}:${PORT}`);
 });
+
+
+

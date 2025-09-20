@@ -21,7 +21,7 @@ export interface CoreLike {
 }
 
 // >>> Point this at your add-on host
-const ADDON_BASE = "http://192.168.2.175:7000";
+const ADDON_BASE = "http://localhost:7000";
 
 class AddonBackedCore implements CoreLike {
   async getCatalog(section: "popular" | "trending") {
